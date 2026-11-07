@@ -1,0 +1,1552 @@
+[
+  {
+    "id": "001",
+    "name": "HBO HD",
+    "group": "电影"
+  },
+  {
+    "id": "002",
+    "name": "HBO Hits HD",
+    "group": "电影"
+  },
+  {
+    "id": "003",
+    "name": "HBO Family HD",
+    "group": "电影"
+  },
+  {
+    "id": "004",
+    "name": "HBO Signature HD",
+    "group": "电影"
+  },
+  {
+    "id": "005",
+    "name": "Showcase Movie",
+    "group": "电影"
+  },
+  {
+    "id": "006",
+    "name": "影迷数位电影 HD",
+    "group": "电影"
+  },
+  {
+    "id": "007",
+    "name": "MCE HD",
+    "group": "电影"
+  },
+  {
+    "id": "008",
+    "name": "Rock Extreme",
+    "group": "电影"
+  },
+  {
+    "id": "009",
+    "name": "Hits Movie HD",
+    "group": "电影"
+  },
+  {
+    "id": "010",
+    "name": "AXN HD",
+    "group": "电影"
+  },
+  {
+    "id": "011",
+    "name": "AXN台湾 HD",
+    "group": "电影"
+  },
+  {
+    "id": "012",
+    "name": "Kix HD",
+    "group": "电影"
+  },
+  {
+    "id": "013",
+    "name": "Cinemax HD",
+    "group": "电影"
+  },
+  {
+    "id": "014",
+    "name": "Warner HD",
+    "group": "电影"
+  },
+  {
+    "id": "015",
+    "name": "好莱坞 HD",
+    "group": "电影"
+  },
+  {
+    "id": "016",
+    "name": "HITS HD",
+    "group": "电影"
+  },
+  {
+    "id": "017",
+    "name": "AMC HD",
+    "group": "电影"
+  },
+  {
+    "id": "018",
+    "name": "Catchplay HD",
+    "group": "电影"
+  },
+  {
+    "id": "019",
+    "name": "Thrill惊悚台",
+    "group": "电影"
+  },
+  {
+    "id": "020",
+    "name": "CInemaWorld HD",
+    "group": "电影"
+  },
+  {
+    "id": "021",
+    "name": "美亞電影 HD",
+    "group": "电影"
+  },
+  {
+    "id": "022",
+    "name": "都市剧场 HD",
+    "group": "电影"
+  },
+  {
+    "id": "023",
+    "name": "龍華洋片 HD",
+    "group": "电影"
+  },
+  {
+    "id": "024",
+    "name": "龍華電影 HD",
+    "group": "电影"
+  },
+  {
+    "id": "025",
+    "name": "東森電影 HD",
+    "group": "电影"
+  },
+  {
+    "id": "026",
+    "name": "東森洋片 HD",
+    "group": "电影"
+  },
+  {
+    "id": "027",
+    "name": "緯來電影 HD",
+    "group": "电影"
+  },
+  {
+    "id": "028",
+    "name": "天映電影",
+    "group": "电影"
+  },
+  {
+    "id": "029",
+    "name": "龍祥電影 HD",
+    "group": "电影"
+  },
+  {
+    "id": "030",
+    "name": "美亚粤语电影 HD",
+    "group": "电影"
+  },
+  {
+    "id": "031",
+    "name": "壹电影HD",
+    "group": "电影"
+  },
+  {
+    "id": "032",
+    "name": "天映電影HD",
+    "group": "电影"
+  },
+  {
+    "id": "033",
+    "name": "靖天电影 HD",
+    "group": "电影"
+  },
+  {
+    "id": "034",
+    "name": "靖天映畫 HD",
+    "group": "电影"
+  },
+  {
+    "id": "035",
+    "name": "CHC HD",
+    "group": "电影"
+  },
+  {
+    "id": "036",
+    "name": "CHC动作 HD",
+    "group": "电影"
+  },
+  {
+    "id": "037",
+    "name": "CHC家庭 HD",
+    "group": "电影"
+  },
+  {
+    "id": "038",
+    "name": "采昌 HD",
+    "group": "电影"
+  },
+  {
+    "id": "001",
+    "name": "CNN HD",
+    "group": "新闻"
+  },
+  {
+    "id": "002",
+    "name": "BBC HD",
+    "group": "新闻"
+  },
+  {
+    "id": "003",
+    "name": "BBC World News",
+    "group": "新闻"
+  },
+  {
+    "id": "004",
+    "name": "Fox News HD",
+    "group": "新闻"
+  },
+  {
+    "id": "005",
+    "name": "Euro News HD",
+    "group": "新闻"
+  },
+  {
+    "id": "006",
+    "name": "Sky News HD",
+    "group": "新闻"
+  },
+  {
+    "id": "007",
+    "name": "BBC1 HD",
+    "group": "新闻"
+  },
+  {
+    "id": "008",
+    "name": "BBC2 HD",
+    "group": "新闻"
+  },
+  {
+    "id": "009",
+    "name": "Asia News HD",
+    "group": "新闻"
+  },
+  {
+    "id": "010",
+    "name": "CNBC HD",
+    "group": "新闻"
+  },
+  {
+    "id": "011",
+    "name": "Blooomberg HD",
+    "group": "新闻"
+  },
+  {
+    "id": "012",
+    "name": "France 24",
+    "group": "新闻"
+  },
+  {
+    "id": "013",
+    "name": "鳳凰資訊HD",
+    "group": "新闻"
+  },
+  {
+    "id": "014",
+    "name": "鳳凰衛視HD",
+    "group": "新闻"
+  },
+  {
+    "id": "015",
+    "name": "Now新闻",
+    "group": "新闻"
+  },
+  {
+    "id": "016",
+    "name": "Now直播",
+    "group": "新闻"
+  },
+  {
+    "id": "017",
+    "name": "Now财经",
+    "group": "新闻"
+  },
+  {
+    "id": "018",
+    "name": "TVBS HD",
+    "group": "新闻"
+  },
+  {
+    "id": "019",
+    "name": "TVBS新闻HD",
+    "group": "新闻"
+  },
+  {
+    "id": "020",
+    "name": "東森新聞HD",
+    "group": "新闻"
+  },
+  {
+    "id": "021",
+    "name": "東森財經 HD",
+    "group": "新闻"
+  },
+  {
+    "id": "022",
+    "name": "三立新聞 HD",
+    "group": "新闻"
+  },
+  {
+    "id": "023",
+    "name": "中視新聞HD",
+    "group": "新闻"
+  },
+  {
+    "id": "024",
+    "name": "民視新聞 HD",
+    "group": "新闻"
+  },
+  {
+    "id": "025",
+    "name": "華視新聞",
+    "group": "新闻"
+  },
+  {
+    "id": "026",
+    "name": "HOY资讯 HD",
+    "group": "新闻"
+  },
+  {
+    "id": "027",
+    "name": "年代新闻 HD",
+    "group": "新闻"
+  },
+  {
+    "id": "028",
+    "name": "壹新闻HD",
+    "group": "新闻"
+  },
+  {
+    "id": "001",
+    "name": "Euro Sports HD",
+    "group": "体育"
+  },
+  {
+    "id": "002",
+    "name": "Skynet HD 1",
+    "group": "体育"
+  },
+  {
+    "id": "003",
+    "name": "Skynet HD 2",
+    "group": "体育"
+  },
+  {
+    "id": "004",
+    "name": "Skynet HD 5",
+    "group": "体育"
+  },
+  {
+    "id": "005",
+    "name": "Skynet HD 6",
+    "group": "体育"
+  },
+  {
+    "id": "006",
+    "name": "Golf HD",
+    "group": "体育"
+  },
+  {
+    "id": "007",
+    "name": "ESPN HD",
+    "group": "体育"
+  },
+  {
+    "id": "008",
+    "name": "Bein Sports 1 HD",
+    "group": "体育"
+  },
+  {
+    "id": "009",
+    "name": "Bein Sports 2 HD",
+    "group": "体育"
+  },
+  {
+    "id": "010",
+    "name": "J SPORTS 1 HD",
+    "group": "体育"
+  },
+  {
+    "id": "011",
+    "name": "J SPORTS 2 HD",
+    "group": "体育"
+  },
+  {
+    "id": "012",
+    "name": "J SPORTS 3 HD",
+    "group": "体育"
+  },
+  {
+    "id": "013",
+    "name": "J SPORTS 4 HD",
+    "group": "体育"
+  },
+  {
+    "id": "014",
+    "name": "博斯高球HD",
+    "group": "体育"
+  },
+  {
+    "id": "015",
+    "name": "博斯高球2 HD",
+    "group": "体育"
+  },
+  {
+    "id": "016",
+    "name": "博斯無限HD",
+    "group": "体育"
+  },
+  {
+    "id": "017",
+    "name": "博斯运动HD",
+    "group": "体育"
+  },
+  {
+    "id": "018",
+    "name": "博斯运动2 HD",
+    "group": "体育"
+  },
+  {
+    "id": "019",
+    "name": "博斯网球 HD",
+    "group": "体育"
+  },
+  {
+    "id": "020",
+    "name": "博斯魅力 HD",
+    "group": "体育"
+  },
+  {
+    "id": "021",
+    "name": "DAZN1 HD",
+    "group": "体育"
+  },
+  {
+    "id": "022",
+    "name": "DAZN2 HD",
+    "group": "体育"
+  },
+  {
+    "id": "023",
+    "name": "DAZN3 HD",
+    "group": "体育"
+  },
+  {
+    "id": "024",
+    "name": "ELTA體育1 HD",
+    "group": "体育"
+  },
+  {
+    "id": "025",
+    "name": "ELTA體育2 HD",
+    "group": "体育"
+  },
+  {
+    "id": "026",
+    "name": "ELTA體育3 HD",
+    "group": "体育"
+  },
+  {
+    "id": "027",
+    "name": "ELTA體育4 HD",
+    "group": "体育"
+  },
+  {
+    "id": "028",
+    "name": "廣東體育 HD",
+    "group": "体育"
+  },
+  {
+    "id": "029",
+    "name": "緯來體育HD",
+    "group": "体育"
+  },
+  {
+    "id": "030",
+    "name": "CCTV5 體育 HD",
+    "group": "体育"
+  },
+  {
+    "id": "031",
+    "name": "勁爆體育 HD",
+    "group": "体育"
+  },
+  {
+    "id": "032",
+    "name": "五星體育HD",
+    "group": "体育"
+  },
+  {
+    "id": "033",
+    "name": "風雲足球",
+    "group": "体育"
+  },
+  {
+    "id": "034",
+    "name": "Trace Sport HD",
+    "group": "体育"
+  },
+  {
+    "id": "001",
+    "name": "Cartoonito HD",
+    "group": "少儿"
+  },
+  {
+    "id": "002",
+    "name": "東森幼幼 HD",
+    "group": "少儿"
+  },
+  {
+    "id": "003",
+    "name": "DreamWork HD",
+    "group": "少儿"
+  },
+  {
+    "id": "004",
+    "name": "Animax HD",
+    "group": "少儿"
+  },
+  {
+    "id": "005",
+    "name": "CN卡通中文",
+    "group": "少儿"
+  },
+  {
+    "id": "006",
+    "name": "Carton Netork",
+    "group": "少儿"
+  },
+  {
+    "id": "007",
+    "name": "Moonbug",
+    "group": "少儿"
+  },
+  {
+    "id": "008",
+    "name": "Disney",
+    "group": "少儿"
+  },
+  {
+    "id": "009",
+    "name": "Momo亲子 HD",
+    "group": "少儿"
+  },
+  {
+    "id": "010",
+    "name": "Davinc HD",
+    "group": "少儿"
+  },
+  {
+    "id": "011",
+    "name": "Nick Asia HD",
+    "group": "少儿"
+  },
+  {
+    "id": "012",
+    "name": "Nick Junior",
+    "group": "少儿"
+  },
+  {
+    "id": "013",
+    "name": "金鹰卡通 ",
+    "group": "少儿"
+  },
+  {
+    "id": "014",
+    "name": "龙华卡通",
+    "group": "少儿"
+  },
+  {
+    "id": "015",
+    "name": "靖洋卡通 HD",
+    "group": "少儿"
+  },
+  {
+    "id": "016",
+    "name": "爱放 HD",
+    "group": "少儿"
+  },
+  {
+    "id": "001",
+    "name": "CCTV1 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "002",
+    "name": "CCTV2 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "003",
+    "name": "CCTV3 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "004",
+    "name": "CCTV4 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "005",
+    "name": "CCTV5 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "006",
+    "name": "CCTV5+ HD",
+    "group": "大陆"
+  },
+  {
+    "id": "007",
+    "name": "CCTV6 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "008",
+    "name": "CCTV7 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "009",
+    "name": "CCTV8 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "010",
+    "name": "CCTV9 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "011",
+    "name": "CCTV10 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "012",
+    "name": "CCTV11 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "013",
+    "name": "CCTV12 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "014",
+    "name": "CCTV13 新闻",
+    "group": "大陆"
+  },
+  {
+    "id": "015",
+    "name": "CCTV14 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "016",
+    "name": "CCTV15 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "017",
+    "name": "CCTV 17 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "018",
+    "name": "CCTV 4K",
+    "group": "大陆"
+  },
+  {
+    "id": "019",
+    "name": "湖南衛視HD",
+    "group": "大陆"
+  },
+  {
+    "id": "020",
+    "name": "浙江衛視HD",
+    "group": "大陆"
+  },
+  {
+    "id": "021",
+    "name": "江蘇衛視HD",
+    "group": "大陆"
+  },
+  {
+    "id": "022",
+    "name": "北京衛視HD",
+    "group": "大陆"
+  },
+  {
+    "id": "023",
+    "name": "廣東衛視HD",
+    "group": "大陆"
+  },
+  {
+    "id": "024",
+    "name": "深圳衛視HD",
+    "group": "大陆"
+  },
+  {
+    "id": "025",
+    "name": "安徽衛視HD",
+    "group": "大陆"
+  },
+  {
+    "id": "026",
+    "name": "遼寧卫视HD",
+    "group": "大陆"
+  },
+  {
+    "id": "027",
+    "name": "河北卫视 HD ",
+    "group": "大陆"
+  },
+  {
+    "id": "028",
+    "name": "吉林卫视 HD ",
+    "group": "大陆"
+  },
+  {
+    "id": "029",
+    "name": "江西卫视 HD ",
+    "group": "大陆"
+  },
+  {
+    "id": "030",
+    "name": "旅游卫视HD ",
+    "group": "大陆"
+  },
+  {
+    "id": "031",
+    "name": "上海電視劇HD",
+    "group": "大陆"
+  },
+  {
+    "id": "032",
+    "name": "東方衛視HD",
+    "group": "大陆"
+  },
+  {
+    "id": "033",
+    "name": "生活時尚 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "034",
+    "name": "金鹰纪实",
+    "group": "大陆"
+  },
+  {
+    "id": "035",
+    "name": "東方娛樂HD",
+    "group": "大陆"
+  },
+  {
+    "id": "036",
+    "name": "黑龍江衛視HD",
+    "group": "大陆"
+  },
+  {
+    "id": "037",
+    "name": "乐游 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "038",
+    "name": "东方影视 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "039",
+    "name": "贵州卫视 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "040",
+    "name": "新聞綜合 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "041",
+    "name": "劲爆体育",
+    "group": "大陆"
+  },
+  {
+    "id": "042",
+    "name": "第一财经 HD",
+    "group": "大陆"
+  },
+  {
+    "id": "043",
+    "name": "大湾区卫视",
+    "group": "大陆"
+  },
+  {
+    "id": "044",
+    "name": "山東卫视HD",
+    "group": "大陆"
+  },
+  {
+    "id": "045",
+    "name": "天津卫视HD",
+    "group": "大陆"
+  },
+  {
+    "id": "046",
+    "name": "珠江台",
+    "group": "大陆"
+  },
+  {
+    "id": "001",
+    "name": "iTV HD",
+    "group": "欧美"
+  },
+  {
+    "id": "002",
+    "name": "iTV 2",
+    "group": "欧美"
+  },
+  {
+    "id": "003",
+    "name": "iTV 3",
+    "group": "欧美"
+  },
+  {
+    "id": "004",
+    "name": "iTV 4",
+    "group": "欧美"
+  },
+  {
+    "id": "005",
+    "name": "Discovery Asia",
+    "group": "欧美"
+  },
+  {
+    "id": "006",
+    "name": "Disovery SC HD",
+    "group": "欧美"
+  },
+  {
+    "id": "007",
+    "name": "History HD",
+    "group": "欧美"
+  },
+  {
+    "id": "008",
+    "name": "Global Trekker HD",
+    "group": "欧美"
+  },
+  {
+    "id": "009",
+    "name": "TechStorm HD",
+    "group": "欧美"
+  },
+  {
+    "id": "010",
+    "name": "BBC Cbeeies",
+    "group": "欧美"
+  },
+  {
+    "id": "011",
+    "name": "BBC Earth",
+    "group": "欧美"
+  },
+  {
+    "id": "012",
+    "name": "BBC Lifestyle",
+    "group": "欧美"
+  },
+  {
+    "id": "013",
+    "name": "麦哲伦 HD",
+    "group": "欧美"
+  },
+  {
+    "id": "014",
+    "name": "Love Nature",
+    "group": "欧美"
+  },
+  {
+    "id": "015",
+    "name": "DW",
+    "group": "欧美"
+  },
+  {
+    "id": "016",
+    "name": "TV5",
+    "group": "欧美"
+  },
+  {
+    "id": "017",
+    "name": "TVE",
+    "group": "欧美"
+  },
+  {
+    "id": "018",
+    "name": "Rai Italia",
+    "group": "欧美"
+  },
+  {
+    "id": "019",
+    "name": "Australia",
+    "group": "欧美"
+  },
+  {
+    "id": "020",
+    "name": "Aljazeera",
+    "group": "欧美"
+  },
+  {
+    "id": "021",
+    "name": "俄罗斯RTR",
+    "group": "欧美"
+  },
+  {
+    "id": "022",
+    "name": "Rock Action HD",
+    "group": "欧美"
+  },
+  {
+    "id": "023",
+    "name": "PET Club HD",
+    "group": "欧美"
+  },
+  {
+    "id": "024",
+    "name": "EVE HD",
+    "group": "欧美"
+  },
+  {
+    "id": "025",
+    "name": "DMAX HD",
+    "group": "欧美"
+  },
+  {
+    "id": "026",
+    "name": "TLC",
+    "group": "欧美"
+  },
+  {
+    "id": "027",
+    "name": "Travel HD",
+    "group": "欧美"
+  },
+  {
+    "id": "028",
+    "name": "Food Asia HD",
+    "group": "欧美"
+  },
+  {
+    "id": "029",
+    "name": "LUXE HD",
+    "group": "欧美"
+  },
+  {
+    "id": "030",
+    "name": "動物星球",
+    "group": "欧美"
+  },
+  {
+    "id": "031",
+    "name": "AFC HD",
+    "group": "欧美"
+  },
+  {
+    "id": "032",
+    "name": "犯罪偵查HD",
+    "group": "欧美"
+  },
+  {
+    "id": "033",
+    "name": "Channel 4 HD",
+    "group": "欧美"
+  },
+  {
+    "id": "034",
+    "name": "Channel 5 HD",
+    "group": "欧美"
+  },
+  {
+    "id": "035",
+    "name": "Discovery",
+    "group": "欧美"
+  },
+  {
+    "id": "036",
+    "name": "Lifetime HD",
+    "group": "欧美"
+  },
+  {
+    "id": "037",
+    "name": "HGTV HD",
+    "group": "欧美"
+  },
+  {
+    "id": "038",
+    "name": "INULTRA HD",
+    "group": "欧美"
+  },
+  {
+    "id": "039",
+    "name": "Fashion TV",
+    "group": "欧美"
+  },
+  {
+    "id": "040",
+    "name": "MTV Live HD",
+    "group": "欧美"
+  },
+  {
+    "id": "041",
+    "name": "Trace Urban HD",
+    "group": "欧美"
+  },
+  {
+    "id": "042",
+    "name": "Mezzo Live HD",
+    "group": "欧美"
+  },
+  {
+    "id": "001",
+    "name": "翡翠台 HD",
+    "group": "香港"
+  },
+  {
+    "id": "002",
+    "name": "翡翠 PLUS",
+    "group": "香港"
+  },
+  {
+    "id": "003",
+    "name": "ViuTV HD",
+    "group": "香港"
+  },
+  {
+    "id": "004",
+    "name": "互動新聞 HD",
+    "group": "香港"
+  },
+  {
+    "id": "005",
+    "name": "明珠台",
+    "group": "香港"
+  },
+  {
+    "id": "006",
+    "name": "TVB经典",
+    "group": "香港"
+  },
+  {
+    "id": "007",
+    "name": "TVB 星河",
+    "group": "香港"
+  },
+  {
+    "id": "008",
+    "name": "Now新闻",
+    "group": "香港"
+  },
+  {
+    "id": "009",
+    "name": "Now直播",
+    "group": "香港"
+  },
+  {
+    "id": "010",
+    "name": "Now财经",
+    "group": "香港"
+  },
+  {
+    "id": "011",
+    "name": "Now668",
+    "group": "香港"
+  },
+  {
+    "id": "012",
+    "name": "有线18台",
+    "group": "香港"
+  },
+  {
+    "id": "013",
+    "name": "RTHK 32",
+    "group": "香港"
+  },
+  {
+    "id": "014",
+    "name": "蓮花衛視",
+    "group": "香港"
+  },
+  {
+    "id": "015",
+    "name": "陽光衛視",
+    "group": "香港"
+  },
+  {
+    "id": "016",
+    "name": "鳳凰香港HD",
+    "group": "香港"
+  },
+  {
+    "id": "017",
+    "name": "VIU6 HD",
+    "group": "香港"
+  },
+  {
+    "id": "018",
+    "name": "星空衛視",
+    "group": "香港"
+  },
+  {
+    "id": "019",
+    "name": "Channel V",
+    "group": "香港"
+  },
+  {
+    "id": "020",
+    "name": "HOY 76 HD",
+    "group": "香港"
+  },
+  {
+    "id": "021",
+    "name": "HOY 78 HD",
+    "group": "香港"
+  },
+  {
+    "id": "001",
+    "name": "臺視HD",
+    "group": "台湾"
+  },
+  {
+    "id": "002",
+    "name": "中視HD",
+    "group": "台湾"
+  },
+  {
+    "id": "003",
+    "name": "公視HD",
+    "group": "台湾"
+  },
+  {
+    "id": "004",
+    "name": "華視HD",
+    "group": "台湾"
+  },
+  {
+    "id": "005",
+    "name": "民視HD",
+    "group": "台湾"
+  },
+  {
+    "id": "006",
+    "name": "民視臺湾 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "007",
+    "name": "臺視新闻 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "008",
+    "name": "中視Bravio",
+    "group": "台湾"
+  },
+  {
+    "id": "009",
+    "name": "公視2 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "010",
+    "name": "TVBS新闻HD",
+    "group": "台湾"
+  },
+  {
+    "id": "011",
+    "name": "TVBS歡樂HD",
+    "group": "台湾"
+  },
+  {
+    "id": "012",
+    "name": "中天綜合HD",
+    "group": "台湾"
+  },
+  {
+    "id": "013",
+    "name": "中天娛樂HD",
+    "group": "台湾"
+  },
+  {
+    "id": "014",
+    "name": "中天新聞HD",
+    "group": "台湾"
+  },
+  {
+    "id": "015",
+    "name": "東森綜合 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "016",
+    "name": "東森戲劇 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "017",
+    "name": "三立臺灣 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "018",
+    "name": "三立都會台 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "019",
+    "name": "壹电视综合",
+    "group": "台湾"
+  },
+  {
+    "id": "020",
+    "name": "八大戲劇 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "021",
+    "name": "八大綜合 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "022",
+    "name": "八大第一台 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "023",
+    "name": "八大娛樂",
+    "group": "台湾"
+  },
+  {
+    "id": "024",
+    "name": "緯來綜合",
+    "group": "台湾"
+  },
+  {
+    "id": "025",
+    "name": "緯來戲劇",
+    "group": "台湾"
+  },
+  {
+    "id": "026",
+    "name": "緯來日本",
+    "group": "台湾"
+  },
+  {
+    "id": "027",
+    "name": "超視 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "028",
+    "name": "囯興衛視",
+    "group": "台湾"
+  },
+  {
+    "id": "029",
+    "name": "JET",
+    "group": "台湾"
+  },
+  {
+    "id": "030",
+    "name": "非凡新聞 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "031",
+    "name": "台視綜合台",
+    "group": "台湾"
+  },
+  {
+    "id": "032",
+    "name": "中視经典",
+    "group": "台湾"
+  },
+  {
+    "id": "033",
+    "name": "大愛 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "034",
+    "name": "靖洋戲劇 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "035",
+    "name": "寰宇HD",
+    "group": "台湾"
+  },
+  {
+    "id": "036",
+    "name": "緯來高清HD",
+    "group": "台湾"
+  },
+  {
+    "id": "037",
+    "name": "ELTA HD",
+    "group": "台湾"
+  },
+  {
+    "id": "038",
+    "name": "三立戏剧HD",
+    "group": "台湾"
+  },
+  {
+    "id": "039",
+    "name": "东风卫视HD",
+    "group": "台湾"
+  },
+  {
+    "id": "040",
+    "name": "爱尔达影剧HD",
+    "group": "台湾"
+  },
+  {
+    "id": "041",
+    "name": "MOMOTV HD",
+    "group": "台湾"
+  },
+  {
+    "id": "042",
+    "name": "年代Much HD",
+    "group": "台湾"
+  },
+  {
+    "id": "043",
+    "name": "三立财经HD",
+    "group": "台湾"
+  },
+  {
+    "id": "044",
+    "name": "美食星球HD",
+    "group": "台湾"
+  },
+  {
+    "id": "045",
+    "name": "TVBS娛樂 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "046",
+    "name": "緯來育樂",
+    "group": "台湾"
+  },
+  {
+    "id": "047",
+    "name": "MTV HD",
+    "group": "台湾"
+  },
+  {
+    "id": "048",
+    "name": "ELTV英语学习 HD",
+    "group": "台湾"
+  },
+  {
+    "id": "049",
+    "name": "霹靂台",
+    "group": "台湾"
+  },
+  {
+    "id": "050",
+    "name": "居家生活频道",
+    "group": "台湾"
+  },
+  {
+    "id": "051",
+    "name": "EYE旅游HD",
+    "group": "台湾"
+  },
+  {
+    "id": "052",
+    "name": "AsiaTravel HD",
+    "group": "台湾"
+  },
+  {
+    "id": "001",
+    "name": "One HD",
+    "group": "日韩"
+  },
+  {
+    "id": "002",
+    "name": "NHK",
+    "group": "日韩"
+  },
+  {
+    "id": "003",
+    "name": "NHK HD",
+    "group": "日韩"
+  },
+  {
+    "id": "004",
+    "name": "NHK 総合 HD",
+    "group": "日韩"
+  },
+  {
+    "id": "005",
+    "name": "NHK Eテレ HD",
+    "group": "日韩"
+  },
+  {
+    "id": "006",
+    "name": "BS 钓鱼 HD",
+    "group": "日韩"
+  },
+  {
+    "id": "007",
+    "name": "KBS HD",
+    "group": "日韩"
+  },
+  {
+    "id": "008",
+    "name": "MBC HD",
+    "group": "日韩"
+  },
+  {
+    "id": "009",
+    "name": "SBS HD",
+    "group": "日韩"
+  },
+  {
+    "id": "010",
+    "name": "KBS World",
+    "group": "日韩"
+  },
+  {
+    "id": "011",
+    "name": "KBS 2 HD",
+    "group": "日韩"
+  },
+  {
+    "id": "012",
+    "name": "韓國娛樂 HD",
+    "group": "日韩"
+  },
+  {
+    "id": "013",
+    "name": "tvN HD",
+    "group": "日韩"
+  },
+  {
+    "id": "014",
+    "name": "WOWOWシネマ",
+    "group": "日韩"
+  },
+  {
+    "id": "015",
+    "name": "WOWOWプライム",
+    "group": "日韩"
+  },
+  {
+    "id": "016",
+    "name": "WOWOWライブ",
+    "group": "日韩"
+  },
+  {
+    "id": "017",
+    "name": "MTV日本 HD",
+    "group": "日韩"
+  },
+  {
+    "id": "018",
+    "name": "Music On",
+    "group": "日韩"
+  },
+  {
+    "id": "001",
+    "name": "GMA-7",
+    "group": "新马菲"
+  },
+  {
+    "id": "002",
+    "name": "TV5 Philippin",
+    "group": "新马菲"
+  },
+  {
+    "id": "003",
+    "name": "TVB娛樂新聞",
+    "group": "新马菲"
+  },
+  {
+    "id": "004",
+    "name": "8 TV",
+    "group": "新马菲"
+  },
+  {
+    "id": "005",
+    "name": "欢喜台",
+    "group": "新马菲"
+  },
+  {
+    "id": "006",
+    "name": "TV1",
+    "group": "新马菲"
+  },
+  {
+    "id": "007",
+    "name": "TV3",
+    "group": "新马菲"
+  },
+  {
+    "id": "008",
+    "name": "TV9",
+    "group": "新马菲"
+  },
+  {
+    "id": "009",
+    "name": "NTN7",
+    "group": "新马菲"
+  },
+  {
+    "id": "010",
+    "name": "BNC",
+    "group": "新马菲"
+  },
+  {
+    "id": "011",
+    "name": "Channel 8",
+    "group": "新马菲"
+  },
+  {
+    "id": "012",
+    "name": "Vasantham",
+    "group": "新马菲"
+  },
+  {
+    "id": "013",
+    "name": "Okto",
+    "group": "新马菲"
+  },
+  {
+    "id": "014",
+    "name": "Suria",
+    "group": "新马菲"
+  },
+  {
+    "id": "001",
+    "name": "Input password",
+    "group": "Special/ 特别节目"
+  }
+]

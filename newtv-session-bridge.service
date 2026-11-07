@@ -1,0 +1,12 @@
+[Unit]
+Description=NewTV loopback simulation bridge
+After=network-online.target
+
+[Service]
+ExecStart=/home/lucifer/newtv-session-bridge/newtv-session-bridge-linux-amd64 -addr :9090 -input /home/lucifer/newtv-session-bridge/loopback-sample.ts -input-bitrate 3300000
+Restart=on-failure
+RestartSec=3
+WorkingDirectory=/home/lucifer/newtv-session-bridge
+
+[Install]
+WantedBy=default.target

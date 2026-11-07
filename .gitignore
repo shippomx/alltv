@@ -1,0 +1,16 @@
+.DS_Store
+
+# Local credentials and generated playlists.
+/newtv.json
+/newtv.m3u
+
+# Build artifacts.
+/catalog
+/newtv-session-bridge
+/newtv-session-bridge-*
+
+# Runtime captures and logs.
+/*.log
+/*.pcap
+/*.pcapng
+/*.ts

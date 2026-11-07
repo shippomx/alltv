@@ -1,0 +1,554 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"newtv-session-bridge/internal/newtvproto"
+)
+
+type bridge struct {
+	newtvMu         sync.RWMutex
+	newtvRefreshMu  sync.Mutex
+	newtvConfigPath string
+	newtvTimeout    time.Duration
+	serial          string
+	packageName     string
+	input           string
+	inputBitrate    int64
+	upstream        string
+	upstreamHost    string
+	upstreamAuth    http.Header
+	httpClient      *http.Client
+	hlsKey          []byte
+	newtvClient     *newtvproto.Client
+	newtvChannels   [][]*newtvproto.Client
+	newtvVOD        bool
+	vodOption       int
+	vodAddressAdapt int
+	channels        []channel
+	switchMu        sync.Mutex
+	streamMu        sync.Mutex
+	streamCancel    context.CancelFunc
+}
+
+func (b *bridge) startStream(parent context.Context) (context.Context, context.CancelFunc) {
+	b.streamMu.Lock()
+	if b.streamCancel != nil {
+		b.streamCancel()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	b.streamCancel = cancel
+	b.streamMu.Unlock()
+	return ctx, cancel
+}
+
+func (b *bridge) applyNewTVRuntime(runtime newTVRuntime) {
+	channels := make([]channel, 0, len(runtime.Channels))
+	clients := make([][]*newtvproto.Client, 0, len(runtime.Channels))
+	for _, item := range runtime.Channels {
+		channels = append(channels, channel{ID: item.ID, Name: item.Name, Group: item.Group})
+		var group []*newtvproto.Client
+		for _, config := range item.Clients {
+			group = append(group, &newtvproto.Client{Config: config, HandshakeAttempts: 1})
+		}
+		clients = append(clients, group)
+	}
+	b.newtvMu.Lock()
+	b.newtvClient = &newtvproto.Client{Config: runtime.Client}
+	b.channels = channels
+	b.newtvChannels = clients
+	b.vodOption, b.vodAddressAdapt = runtime.VODOption.Option, runtime.VODOption.AddressAdapt
+	b.newtvMu.Unlock()
+}
+
+func (b *bridge) applyNewTVClientID(clientID uint32) {
+	b.newtvMu.Lock()
+	defer b.newtvMu.Unlock()
+	if b.newtvClient != nil {
+		b.newtvClient.Config.ClientID = clientID
+	}
+	for _, group := range b.newtvChannels {
+		for _, client := range group {
+			client.Config.ClientID = clientID
+		}
+	}
+}
+
+func (b *bridge) reloadNewTV(ctx context.Context) (time.Duration, error) {
+	b.newtvRefreshMu.Lock()
+	defer b.newtvRefreshMu.Unlock()
+	runtime, err := loadNewTVRuntimeWithAuth(ctx, b.newtvConfigPath, true, b.applyNewTVClientID)
+	if err != nil {
+		return 0, err
+	}
+	b.applyNewTVRuntime(runtime)
+	return runtime.RefreshAfter, nil
+}
+
+func (b *bridge) refreshNewTV(ctx context.Context, timeout, after time.Duration) {
+	for {
+		timer := time.NewTimer(after)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		refreshCtx, cancel := context.WithTimeout(ctx, timeout)
+		next, err := b.reloadNewTV(refreshCtx)
+		cancel()
+		if err != nil {
+			log.Printf("NewTV re-authentication failed; keeping current session: %v", err)
+			after = time.Minute
+			continue
+		}
+		after = next
+		log.Printf("NewTV session refreshed; next authentication in %s", after)
+	}
+}
+
+type flushingWriter struct{ http.ResponseWriter }
+
+func (w flushingWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	if err == nil {
+		if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+	return n, err
+}
+
+type channel struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Group string `json:"group"`
+}
+
+type headerFlags http.Header
+
+func (h *headerFlags) String() string { return fmt.Sprint(http.Header(*h)) }
+
+func (h *headerFlags) Set(raw string) error {
+	name, value, ok := strings.Cut(raw, ":")
+	name, value = strings.TrimSpace(name), strings.TrimSpace(value)
+	if !ok || name == "" || strings.ContainsAny(raw, "\r\n") {
+		return fmt.Errorf("header must be Name: value")
+	}
+	if envName, found := strings.CutPrefix(value, "@"); found {
+		var exists bool
+		value, exists = os.LookupEnv(envName)
+		if !exists {
+			return fmt.Errorf("environment variable %s is not set", envName)
+		}
+	}
+	if *h == nil {
+		*h = headerFlags{}
+	}
+	http.Header(*h).Add(name, value)
+	return nil
+}
+
+func main() {
+	addr := flag.String("addr", ":9090", "HTTP listen address")
+	serial := flag.String("serial", "emulator-5554", "adb device serial")
+	pkg := flag.String("package", "tv.newtv", "Android package")
+	input := flag.String("input", "", "loop this MPEG-TS file instead of reading Android loopback")
+	inputBitrate := flag.Int64("input-bitrate", 4_000_000, "simulated input bitrate in bits/s")
+	upstream := flag.String("upstream", "", "proxy this HTTP media stream instead of reading Android loopback")
+	var upstreamHeaders headerFlags
+	flag.Var(&upstreamHeaders, "upstream-header", "header sent to the configured upstream origin; use Name: @ENV to read its value from an environment variable")
+	channelsFile := flag.String("channels", "", "channel catalog JSON generated by cmd/catalog")
+	sessionPath := flag.String("newtv-session", "", "authorized NewTV private-protocol session JSON")
+	newTVConfigPath := flag.String("newtv-config", "", "legal NewTV account and protocol configuration JSON")
+	newTVVOD := flag.String("newtv-vod", "", "authorized udp:// or relay:// NewTV VOD play URL")
+	newTVTimeout := flag.Duration("newtv-timeout", 45*time.Second, "NewTV startup authentication timeout")
+	flag.Parse()
+	privateModes := 0
+	for _, enabled := range []bool{*input != "", *upstream != "", *sessionPath != "", *newTVConfigPath != ""} {
+		if enabled {
+			privateModes++
+		}
+	}
+	if privateModes > 1 {
+		log.Fatal("-input, -upstream, -newtv-session, and -newtv-config are mutually exclusive")
+	}
+	var upstreamHost string
+	if *upstream != "" {
+		parsed, err := url.Parse(*upstream)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			log.Fatalf("invalid -upstream %q", *upstream)
+		}
+		upstreamHost = parsed.Host
+	}
+	if *input != "" {
+		if info, err := os.Stat(*input); err != nil || info.IsDir() {
+			log.Fatalf("invalid -input %q: %v", *input, err)
+		}
+		if *inputBitrate <= 0 {
+			log.Fatal("-input-bitrate must be positive")
+		}
+	}
+
+	hlsKey := make([]byte, 32)
+	if _, err := rand.Read(hlsKey); err != nil {
+		log.Fatal(err)
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	b := &bridge{serial: *serial, packageName: *pkg, input: *input, inputBitrate: *inputBitrate, upstream: *upstream, upstreamHost: upstreamHost, upstreamAuth: http.Header(upstreamHeaders), httpClient: &http.Client{Jar: jar}, hlsKey: hlsKey, newtvConfigPath: *newTVConfigPath, newtvTimeout: *newTVTimeout}
+	var newTVRefreshAfter time.Duration
+	if *sessionPath != "" {
+		runtime, err := loadSession(*sessionPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		b.newtvClient = &newtvproto.Client{Config: runtime.Client}
+		b.vodOption, b.vodAddressAdapt = runtime.VODOption.Option, runtime.VODOption.AddressAdapt
+	}
+	if *newTVConfigPath != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), *newTVTimeout)
+		runtime, err := loadNewTVClient(ctx, *newTVConfigPath)
+		cancel()
+		if err != nil {
+			log.Fatal(err)
+		}
+		b.applyNewTVRuntime(runtime)
+		newTVRefreshAfter = runtime.RefreshAfter
+	}
+	if *newTVVOD != "" {
+		if b.newtvClient == nil {
+			log.Fatal("-newtv-vod requires -newtv-config or -newtv-session")
+		}
+		channel, peers, err := parseVODURL(*newTVVOD, b.vodOption, b.vodAddressAdapt)
+		if err != nil {
+			log.Fatal(err)
+		}
+		b.newtvClient.Config.Channel = channel
+		b.newtvClient.Config.Peers = peers
+		b.newtvClient.Config.HolePunchPeers = nil
+		b.newtvVOD = true
+	}
+	if newTVRefreshAfter > 0 && !b.newtvVOD {
+		go b.refreshNewTV(context.Background(), *newTVTimeout, newTVRefreshAfter)
+	}
+	if *channelsFile != "" {
+		raw, err := os.ReadFile(*channelsFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &b.channels); err != nil {
+			log.Fatal(err)
+		}
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", b.health)
+	mux.HandleFunc("GET /playlist.m3u", b.playlist)
+	mux.HandleFunc("GET /stream", b.stream)
+	mux.HandleFunc("GET /hls/{token}", b.hlsResource)
+	mux.HandleFunc("GET /channel/{index}", b.channelStream)
+	mode := "android"
+	if b.input != "" {
+		mode = "simulate"
+	} else if b.upstream != "" {
+		mode = "upstream"
+	} else if b.newtvClient != nil {
+		mode = "newtv-go"
+	}
+	log.Printf("newtv session bridge listening on %s mode=%s", *addr, mode)
+	log.Fatal(http.ListenAndServe(*addr, mux))
+}
+
+func (b *bridge) adb(ctx context.Context, args ...string) ([]byte, error) {
+	all := append([]string{"-s", b.serial}, args...)
+	out, err := exec.CommandContext(ctx, "adb", all...).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("adb %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return out, nil
+}
+
+func (b *bridge) playbackPort(ctx context.Context) (int, error) {
+	uidOut, err := b.adb(ctx, "shell", "stat", "-c", "%u", "/data/user/0/"+b.packageName)
+	if err != nil {
+		return 0, err
+	}
+	uid := strings.TrimSpace(string(uidOut))
+	out, err := b.adb(ctx, "shell", "cat", "/proc/net/tcp", "/proc/net/tcp6")
+	if err != nil {
+		return 0, err
+	}
+	return parsePlaybackPort(string(out), uid)
+}
+
+func parsePlaybackPort(s, uid string) (int, error) {
+	for _, line := range strings.Split(s, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 8 || fields[3] != "0A" || fields[7] != uid {
+			continue
+		}
+		address := strings.Split(fields[1], ":")
+		if len(address) != 2 {
+			continue
+		}
+		p, err := strconv.ParseInt(address[1], 16, 32)
+		if err == nil && p >= 40000 && p <= 49999 {
+			return int(p), nil
+		}
+	}
+	return 0, errors.New("NewTV is not playing: no localhost playback port in 40000-49999")
+}
+
+func (b *bridge) health(w http.ResponseWriter, r *http.Request) {
+	b.newtvMu.RLock()
+	newtvClient := b.newtvClient
+	b.newtvMu.RUnlock()
+	if newtvClient != nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "mode": "newtv-go"})
+		return
+	}
+	if b.upstream != "" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "mode": "upstream"})
+		return
+	}
+	if b.input != "" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "mode": "simulate", "input": b.input})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	p, err := b.playbackPort(ctx)
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "playback_port": p})
+}
+
+func (b *bridge) playlist(w http.ResponseWriter, r *http.Request) {
+	b.newtvMu.RLock()
+	channels := append([]channel(nil), b.channels...)
+	b.newtvMu.RUnlock()
+	w.Header().Set("Content-Type", "audio/x-mpegurl; charset=utf-8")
+	if len(channels) > 0 {
+		fmt.Fprintln(w, "#EXTM3U")
+		for i, c := range channels {
+			fmt.Fprintf(w, "#EXTINF:-1 tvg-id=\"NewTV-%s\" group-title=\"%s\",%s\n#EXTVLCOPT:network-caching=5000\n#EXTVLCOPT:input-repeat=65535\nhttp://%s/channel/%d\n", c.ID, c.Group, c.Name, r.Host, i)
+		}
+		return
+	}
+	fmt.Fprintf(w, "#EXTM3U\n#EXTINF:-1 group-title=\"NewTV\",NewTV 当前频道\nhttp://%s/stream\n", r.Host)
+}
+
+func (b *bridge) clientsForChannel(id string) []*newtvproto.Client {
+	b.newtvMu.RLock()
+	defer b.newtvMu.RUnlock()
+	for i := range b.channels {
+		if b.channels[i].ID == id && i < len(b.newtvChannels) {
+			return append([]*newtvproto.Client(nil), b.newtvChannels[i]...)
+		}
+	}
+	return nil
+}
+
+func (b *bridge) channelStream(w http.ResponseWriter, r *http.Request) {
+	if b.input != "" {
+		http.Error(w, "channel switching is unavailable in simulate mode", http.StatusConflict)
+		return
+	}
+	index, err := strconv.Atoi(r.PathValue("index"))
+	b.newtvMu.RLock()
+	if err != nil || index < 0 || index >= len(b.channels) {
+		b.newtvMu.RUnlock()
+		http.NotFound(w, r)
+		return
+	}
+	selected := b.channels[index]
+	b.newtvMu.RUnlock()
+	clients := b.clientsForChannel(selected.ID)
+	if len(clients) > 0 {
+		streamCtx, cancel := b.startStream(r.Context())
+		defer cancel()
+		w.Header().Set("Content-Type", "video/mp2t")
+		w.Header().Set("Cache-Control", "no-store")
+		mediaWriter := newtvproto.NewContinuityWriter(flushingWriter{w})
+		var streamErr error
+		for {
+			for _, client := range clients {
+				mediaWriter.BeginSession()
+				conn, err := net.ListenPacket("udp4", "0.0.0.0:0")
+				if err != nil {
+					streamErr = err
+					break
+				}
+				streamErr = client.Stream(streamCtx, conn, mediaWriter)
+				_ = conn.Close()
+				if errors.Is(streamErr, context.Canceled) {
+					return
+				}
+			}
+			if streamCtx.Err() != nil {
+				return
+			}
+			if errors.Is(streamErr, newtvproto.ErrStalled) {
+				log.Printf("newtv channel %s media stalled; rebuilding current channel", selected.ID)
+				continue
+			}
+			if b.newtvConfigPath != "" && errors.Is(streamErr, newtvproto.ErrHandshake) {
+				log.Printf("newtv channel %s handshake failed; waiting for re-authentication", selected.ID)
+				refreshCtx, stopRefresh := context.WithTimeout(streamCtx, b.newtvTimeout)
+				_, refreshErr := b.reloadNewTV(refreshCtx)
+				stopRefresh()
+				if refreshErr == nil {
+					clients = b.clientsForChannel(selected.ID)
+					continue
+				}
+				log.Printf("newtv channel %s re-authentication failed; keeping current input open: %v", selected.ID, refreshErr)
+				select {
+				case <-streamCtx.Done():
+					return
+				case <-time.After(time.Second):
+					continue
+				}
+			}
+			log.Printf("newtv channel %s stream interrupted; rebuilding current channel: %v", selected.ID, streamErr)
+			select {
+			case <-streamCtx.Done():
+				return
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+	}
+	b.switchMu.Lock()
+	defer b.switchMu.Unlock()
+	port, err := b.selectChannel(r.Context(), selected)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "video/mp2t")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := relayPlayback(r.Context(), w, port, time.Second, b.capture, b.playbackPort); err != nil && !errors.Is(err, context.Canceled) {
+		log.Printf("capture channel %s/%s port %d: %v", selected.Group, selected.ID, port, err)
+	}
+}
+
+func (b *bridge) stream(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if b.upstream != "" {
+		if err := b.proxyStream(r.Context(), w); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("upstream stream: %v", err)
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "video/mp2t")
+	b.newtvMu.RLock()
+	newtvClient := b.newtvClient
+	b.newtvMu.RUnlock()
+	if newtvClient != nil {
+		conn, err := net.ListenPacket("udp4", "0.0.0.0:0")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer conn.Close()
+		var streamErr error
+		if b.newtvVOD {
+			streamErr = newtvClient.StreamVOD(r.Context(), conn, flushingWriter{w}, 0)
+		} else {
+			streamErr = newtvClient.Stream(r.Context(), conn, flushingWriter{w})
+		}
+		if streamErr != nil && !errors.Is(streamErr, context.Canceled) {
+			log.Printf("newtv stream: %v", streamErr)
+		}
+		return
+	}
+	if b.input != "" {
+		if err := streamFile(r.Context(), w, b.input, b.inputBitrate); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("simulate stream: %v", err)
+		}
+		return
+	}
+	port, err := b.waitPlaybackPort(r.Context(), 30*time.Second)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	if err := relayPlayback(r.Context(), w, port, time.Second, b.capture, b.playbackPort); err != nil && !errors.Is(err, context.Canceled) {
+		log.Printf("capture port %d: %v", port, err)
+	}
+}
+
+func parseVODURL(raw string, option, addressAdapt int) ([16]byte, []*net.UDPAddr, error) {
+	var channel [16]byte
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "udp" && u.Scheme != "relay") || u.Host == "" {
+		return channel, nil, fmt.Errorf("invalid NewTV VOD URL")
+	}
+	id := strings.TrimPrefix(u.EscapedPath(), "/")
+	decoded, err := hex.DecodeString(id)
+	if err != nil || len(decoded) != len(channel) {
+		return channel, nil, fmt.Errorf("NewTV VOD ID must be 32 hexadecimal characters")
+	}
+	copy(channel[:], decoded)
+	peer, err := net.ResolveUDPAddr("udp", u.Host)
+	if err != nil {
+		return channel, nil, fmt.Errorf("resolve NewTV VOD provider: %w", err)
+	}
+	if u.Scheme == "udp" {
+		delta := addressAdapt - option
+		if peer.IP.To4() == nil || delta <= 0 || int(peer.IP[15]) <= delta || peer.Port > 64535 {
+			return channel, nil, fmt.Errorf("NewTV VOD URL requires valid FakeOption address adaptation")
+		}
+		first := append(net.IP(nil), peer.IP...)
+		second := append(net.IP(nil), peer.IP...)
+		first[15] -= byte(delta)
+		second[15] -= byte(delta - 1)
+		return channel, []*net.UDPAddr{{IP: first, Port: peer.Port + 1000}, {IP: second, Port: peer.Port + 1000}}, nil
+	}
+	return channel, []*net.UDPAddr{peer}, nil
+}
+
+func (b *bridge) waitPlaybackPort(ctx context.Context, timeout time.Duration) (int, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		probe, cancel := context.WithTimeout(ctx, 2*time.Second)
+		port, err := b.playbackPort(probe)
+		cancel()
+		if err == nil {
+			return port, nil
+		}
+		if time.Now().After(deadline) {
+			return 0, err
+		}
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
