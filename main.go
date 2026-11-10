@@ -357,7 +357,7 @@ func (b *bridge) playlist(w http.ResponseWriter, r *http.Request) {
 	if len(channels) > 0 {
 		fmt.Fprintln(w, "#EXTM3U")
 		for i, c := range channels {
-			fmt.Fprintf(w, "#EXTINF:-1 tvg-id=\"NewTV-%s\" group-title=\"%s\",%s\n#EXTVLCOPT:network-caching=5000\n#EXTVLCOPT:input-repeat=65535\nhttp://%s/channel/%d\n", c.ID, c.Group, c.Name, r.Host, i)
+			fmt.Fprintf(w, "#EXTINF:-1 tvg-id=\"NewTV-%s\" group-title=\"%s\",%s\n#EXTVLCOPT:network-caching=5000\nhttp://%s/channel/%d\n", c.ID, c.Group, c.Name, r.Host, i)
 		}
 		return
 	}
@@ -398,25 +398,25 @@ func (b *bridge) channelStream(w http.ResponseWriter, r *http.Request) {
 		mediaWriter := newtvproto.NewContinuityWriter(flushingWriter{w})
 		var streamErr error
 		for {
-			for _, client := range clients {
-				mediaWriter.BeginSession()
+			for i := 0; i < len(clients); {
 				conn, err := net.ListenPacket("udp4", "0.0.0.0:0")
 				if err != nil {
 					streamErr = err
 					break
 				}
-				streamErr = client.Stream(streamCtx, conn, mediaWriter)
+				streamErr = clients[i].Stream(streamCtx, conn, mediaWriter)
 				_ = conn.Close()
 				if errors.Is(streamErr, context.Canceled) {
 					return
 				}
+				if errors.Is(streamErr, newtvproto.ErrStalled) {
+					log.Printf("newtv channel %s media stalled; rebuilding current channel", selected.ID)
+					continue
+				}
+				i++
 			}
 			if streamCtx.Err() != nil {
 				return
-			}
-			if errors.Is(streamErr, newtvproto.ErrStalled) {
-				log.Printf("newtv channel %s media stalled; rebuilding current channel", selected.ID)
-				continue
 			}
 			if b.newtvConfigPath != "" && errors.Is(streamErr, newtvproto.ErrHandshake) {
 				log.Printf("newtv channel %s handshake failed; waiting for re-authentication", selected.ID)

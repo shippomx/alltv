@@ -49,24 +49,21 @@ func TestChartIndexResolveSelectsAdjacentSortedServersAndMatchingHoles(t *testin
 	if len(channel.Peers) != 2 || len(channel.HolePunchPeers) != 2 {
 		t.Fatalf("peers=%v holes=%v", channel.Peers, channel.HolePunchPeers)
 	}
-	if len(channel.EndpointSets) != 4 {
-		t.Fatalf("endpoint sets = %d, want 4", len(channel.EndpointSets))
+	if len(channel.EndpointSets) != 1 {
+		t.Fatalf("endpoint sets = %d, want the native selected pair", len(channel.EndpointSets))
 	}
 	order := map[string]int{"192.0.2.1:9000": 0, "192.0.2.2:9000": 1, "198.51.100.1:9000": 2, "198.51.100.2:9000": 3}
 	for _, endpoints := range channel.EndpointSets {
-		if (order[endpoints.Peers[0]]+1)%4 != order[endpoints.Peers[1]] {
-			t.Fatalf("fallback peers are not circular neighbors: %v", endpoints.Peers)
+		if order[endpoints.Peers[0]] < 2 || order[endpoints.Peers[1]] < 2 || endpoints.Peers[0] == endpoints.Peers[1] {
+			t.Fatalf("selected peers are not circular neighbors: %v", endpoints.Peers)
 		}
-	}
-	if (order[channel.Peers[0]]+1)%4 != order[channel.Peers[1]] {
-		t.Fatalf("peers are not circular neighbors: %v", channel.Peers)
 	}
 	for i, peer := range channel.Peers {
 		address, _ := netip.ParseAddrPort(channel.HolePunchPeers[i])
-		want := netip.MustParsePrefix("203.0.113.0/24")
-		if order[peer] >= 2 {
-			want = netip.MustParsePrefix("198.18.0.0/24")
+		if order[peer] < 2 {
+			t.Fatalf("room-mask rejected peer was selected: %q", peer)
 		}
+		want := netip.MustParsePrefix("198.18.0.0/24")
 		if !want.Contains(address.Addr()) {
 			t.Fatalf("peer %q hole = %q", peer, channel.HolePunchPeers[i])
 		}

@@ -3,6 +3,7 @@ package newtvproto
 import (
 	"bytes"
 	"testing"
+	"time"
 )
 
 func TestPSIContinuityWriterRepairsOnlyPATAndPMT(t *testing.T) {
@@ -28,6 +29,13 @@ func TestPSIContinuityWriterRepairsOnlyPATAndPMT(t *testing.T) {
 	}
 	if got[2*TSPacketSize+3]&0x0f != 8 {
 		t.Fatalf("video counter changed to %d", got[2*TSPacketSize+3]&0x0f)
+	}
+}
+
+func TestContinuityWriterIsNotWrappedTwice(t *testing.T) {
+	writer := NewContinuityWriter(&bytes.Buffer{})
+	if continuityWriter(writer) != writer {
+		t.Fatal("existing continuity writer was wrapped a second time")
 	}
 }
 
@@ -126,12 +134,15 @@ func TestContinuityWriterWaitsForVideoRandomAccessFrame(t *testing.T) {
 	_, _ = w.Write(packet(1, 5, 1900))
 	_, _ = w.Write(packet(2, 1, 2100))
 	w.params[256] = 3
+	w.knownParams[256] = true
 	_, _ = w.Write(packet(3, 5, 2200))
+	_, _ = w.Write(packet(4, 1, 2300))
 	got := output.Bytes()
 	if got[TSPacketSize+1] != 0x1f || got[2*TSPacketSize+1] != 0x1f {
 		t.Fatal("replayed or dependent H.264 frame was not dropped")
 	}
-	if got[3*TSPacketSize+1]&0x1f != 1 || got[3*TSPacketSize+3]&0x0f != 1 {
+	resumed := got[len(got)-2*TSPacketSize:]
+	if resumed[1]&0x1f != 1 || resumed[3]&0x0f != 1 {
 		t.Fatal("H.264 IDR did not resume with continuous counter")
 	}
 }
@@ -151,13 +162,140 @@ func TestContinuityWriterWaitsForKeyframeAfterGapAtPESStart(t *testing.T) {
 	_, _ = w.Write(packet(0, 5))
 	_, _ = w.Write(packet(2, 1))
 	w.params[256] = 3
+	w.knownParams[256] = true
 	_, _ = w.Write(packet(3, 5))
+	_, _ = w.Write(packet(4, 1))
 	got := output.Bytes()
 	if got[TSPacketSize+1] != 0x1f {
 		t.Fatal("dependent frame after a PES-boundary gap was not dropped")
 	}
-	if got[2*TSPacketSize+1]&0x1f != 1 {
+	if got[len(got)-TSPacketSize+1]&0x1f != 1 {
 		t.Fatal("IDR after a PES-boundary gap did not resume output")
+	}
+}
+
+func TestContinuityWriterRebasesTimestampAfterTransportGap(t *testing.T) {
+	packet := func(counter byte, pts uint64) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
+		copy(p[4:], []byte{0, 0, 1, 0xe0, 0, 0, 0x80, 0x80, 5})
+		writeTimestamp(p[13:18], pts)
+		copy(p[20:], []byte{0, 0, 1, 5})
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256], w.knownParams[256], w.params[256] = 0x1b, true, 3
+	w.BeginSession()
+	_, _ = w.Write(packet(0, 10_000))
+	for i := 0; i < 51; i++ {
+		_, _ = w.Write(packet(byte(i+2)&0x0f, 2_000))
+	}
+	got := output.Bytes()
+	_, firstPTS, _ := readPTS(got[:TSPacketSize])
+	_, resumedPTS, _ := readPTS(got[len(got)-TSPacketSize:])
+	if !timestampAfter(resumedPTS, firstPTS) {
+		t.Fatalf("transport gap replayed an old timestamp: first=%d resumed=%d", firstPTS, resumedPTS)
+	}
+}
+
+func TestContinuityWriterRemovesTimeSpentWaitingForIDR(t *testing.T) {
+	packet := func(counter, nal byte, pts uint64) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
+		copy(p[4:], []byte{0, 0, 1, 0xe0, 0, 0, 0x80, 0x80, 5})
+		writeTimestamp(p[13:18], pts)
+		copy(p[20:], []byte{0, 0, 1, nal})
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256], w.knownParams[256], w.params[256] = 0x1b, true, 3
+	w.BeginSession()
+	_, _ = w.Write(packet(0, 5, 10_000))
+	_, _ = w.Write(packet(2, 1, 20_000))
+	_, _ = w.Write(packet(3, 5, 25_000))
+	_, _ = w.Write(packet(4, 1, 26_000))
+	got := output.Bytes()
+	_, firstPTS, _ := readPTS(got[:TSPacketSize])
+	_, resumedPTS, _ := readPTS(got[len(got)-2*TSPacketSize:])
+	if resumedPTS != firstPTS+1 {
+		t.Fatalf("IDR wait leaked into output timeline: first=%d resumed=%d", firstPTS, resumedPTS)
+	}
+}
+
+func TestContinuityWriterPreservesWallClockGapAtIDR(t *testing.T) {
+	packet := func(counter byte, pts uint64) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
+		copy(p[4:], []byte{0, 0, 1, 0xe0, 0, 0, 0x80, 0x80, 5})
+		writeTimestamp(p[13:18], pts)
+		copy(p[20:], []byte{0, 0, 1, 5})
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256], w.knownParams[256], w.params[256] = 0x1b, true, 3
+	w.BeginSession()
+	_, _ = w.Write(packet(0, 10_000))
+	w.emittedAt[256] = time.Now().Add(-time.Second)
+	w.BeginSession()
+	_, _ = w.Write(packet(1, 20_000))
+	_, _ = w.Write(packet(2, 21_000))
+	got := output.Bytes()
+	_, first, _ := readPTS(got[:TSPacketSize])
+	_, second, _ := readPTS(got[len(got)-2*TSPacketSize:])
+	if delta := (second - first) & timestampMask; delta < 90_000 || delta > 91_000 {
+		t.Fatalf("wall-clock gap was not preserved: delta=%d", delta)
+	}
+}
+
+func TestContinuityWriterClampsSmallAudioTimestampRollback(t *testing.T) {
+	packet := func(counter byte, pts uint64) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 1, 0x10|counter
+		copy(p[4:], []byte{0, 0, 1, 0xc0, 0, 0, 0x80, 0x80, 5})
+		writeTimestamp(p[13:18], pts)
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.BeginSession()
+	_, _ = w.Write(packet(0, 100_000))
+	_, _ = w.Write(packet(1, 94_960))
+	got := output.Bytes()
+	_, first, _ := readPTS(got[:TSPacketSize])
+	_, second, _ := readPTS(got[TSPacketSize:])
+	if !timestampAfter(second, first) {
+		t.Fatalf("audio timestamp moved backwards: first=%d second=%d", first, second)
+	}
+}
+
+func TestContinuityWriterWaitsForIDRAfterUnsignaledTimestampJump(t *testing.T) {
+	packet := func(counter, nal byte, pts uint64) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
+		copy(p[4:], []byte{0, 0, 1, 0xe0, 0, 0, 0x80, 0x80, 5})
+		writeTimestamp(p[13:18], pts)
+		copy(p[20:], []byte{0, 0, 1, nal})
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256], w.knownParams[256], w.params[256] = 0x1b, true, 3
+	w.BeginSession()
+	_, _ = w.Write(packet(0, 5, 100_000))
+	_, _ = w.Write(packet(1, 1, 98_200))
+	_, _ = w.Write(packet(2, 5, 101_800))
+	_, _ = w.Write(packet(3, 1, 103_600))
+	got := output.Bytes()
+	if got[TSPacketSize+1] != 0x1f {
+		t.Fatal("dependent frame after an unsignaled jump was emitted")
+	}
+	_, firstPTS, _ := readPTS(got[:TSPacketSize])
+	_, resumedPTS, _ := readPTS(got[len(got)-2*TSPacketSize:])
+	if delta := (resumedPTS - firstPTS) & timestampMask; delta == 0 || delta > 45_000 {
+		t.Fatalf("IDR did not resume on the emitted timeline: first=%d resumed=%d", firstPTS, resumedPTS)
 	}
 }
 
@@ -177,35 +315,53 @@ func TestContinuityWriterDoesNotResumeHEVCAtCRA(t *testing.T) {
 	w.BeginSession()
 	_, _ = w.Write(packet(1, 21))
 	w.params[256] = 7
+	w.knownParams[256] = true
 	_, _ = w.Write(packet(2, 19))
+	_, _ = w.Write(packet(3, 1))
 	got := output.Bytes()
 	if got[TSPacketSize+1] != 0x1f {
 		t.Fatal("HEVC CRA resumed without its prior reference pictures")
 	}
-	if got[2*TSPacketSize+1]&0x1f != 1 {
+	if got[len(got)-TSPacketSize+1]&0x1f != 1 {
 		t.Fatal("HEVC IDR did not resume output")
 	}
 }
 
-func TestContinuityWriterPassesHEVCParameterSetsWhileWaitingForIDR(t *testing.T) {
-	packet := func(counter, nalType byte) []byte {
+func TestContinuityWriterResumesWithCompleteHEVCRandomAccessPES(t *testing.T) {
+	packet := func(counter, nalType byte, startsPES bool) []byte {
 		p := make([]byte, TSPacketSize)
-		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
+		p[0], p[1], p[2], p[3] = 0x47, 0x01, 0, 0x10|counter
+		if startsPES {
+			p[1] |= 0x40
+			copy(p[4:], []byte{0, 0, 1, 0xe0})
+		}
 		copy(p[20:], []byte{0, 0, 1, nalType << 1})
 		return p
 	}
 	var output bytes.Buffer
 	w := NewContinuityWriter(&output)
-	w.video[256], w.waitKey[256] = 0x24, true
+	w.video[256], w.waitKey[256], w.dropping[256] = 0x24, true, true
 	w.BeginSession()
-	_, _ = w.Write(packet(0, 32))
-	_, _ = w.Write(packet(1, 33))
-	_, _ = w.Write(packet(2, 34))
-	_, _ = w.Write(packet(3, 1))
-	_, _ = w.Write(packet(4, 19))
+	input := append(packet(0, 32, true), packet(1, 33, false)...)
+	input = append(input, packet(2, 34, false)...)
+	input = append(input, packet(3, 19, false)...)
+	input = append(input, packet(4, 1, true)...)
+	_, _ = w.Write(input)
 	got := output.Bytes()
-	if got[1]&0x1f != 1 || got[TSPacketSize+1]&0x1f != 1 || got[2*TSPacketSize+1]&0x1f != 1 || got[3*TSPacketSize+1] != 0x1f || got[4*TSPacketSize+1]&0x1f != 1 {
-		t.Fatal("HEVC startup did not preserve parameter sets and wait for IDR")
+	if len(got) < 8*TSPacketSize {
+		t.Fatalf("random-access PES was not replayed completely: bytes=%d", len(got))
+	}
+	replayed := got[len(got)-5*TSPacketSize:]
+	for i := 0; i < 4; i++ {
+		if replayed[i*TSPacketSize+1]&0x1f != 1 {
+			t.Fatalf("replayed PES packet %d is missing", i)
+		}
+	}
+	if replayed[1]&0x40 == 0 {
+		t.Fatal("replayed random-access data did not begin at its PES boundary")
+	}
+	if nalType := replayed[4*TSPacketSize+23] >> 1 & 0x3f; nalType != 1 {
+		t.Fatalf("packet after random-access PES was reordered before it: nal=%d", nalType)
 	}
 }
 
@@ -231,16 +387,67 @@ func TestContinuityWriterDropsMediaUntilPMTAndKeyframe(t *testing.T) {
 	_, _ = w.Write(video(2, 7))
 	_, _ = w.Write(video(3, 8))
 	_, _ = w.Write(video(4, 5))
+	_, _ = w.Write(video(5, 1))
 	got := output.Bytes()
 	if got[1] != 0x1f || got[2*TSPacketSize+1] != 0x1f {
 		t.Fatal("dependent media escaped before PMT/keyframe")
 	}
-	if got[5*TSPacketSize+1]&0x1f != 1 {
+	if got[len(got)-TSPacketSize+1]&0x1f != 1 {
 		t.Fatal("IDR after PMT did not resume output")
 	}
 }
 
-func TestContinuityWriterResumesAtIDRInsidePES(t *testing.T) {
+func TestContinuityWriterRecoversWhenCodecChangesOnSamePID(t *testing.T) {
+	video := func(counter, nal byte) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
+		copy(p[20:], []byte{0, 0, 1, nal})
+		return p
+	}
+	pmt := make([]byte, TSPacketSize)
+	pmt[0], pmt[1], pmt[2], pmt[3], pmt[4] = 0x47, 0x50, 0, 0x10, 0
+	pmt[5], pmt[6], pmt[7] = 2, 0xb0, 18
+	pmt[15], pmt[16] = 0xf0, 0
+	pmt[17], pmt[18], pmt[19], pmt[20], pmt[21] = 0x1b, 0xe1, 0, 0xf0, 0
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256], w.knownParams[256] = 0x24, true
+	w.started = true
+	w.BeginSession()
+	_, _ = w.Write(pmt)
+	_, _ = w.Write(video(0, 7))
+	_, _ = w.Write(video(1, 8))
+	_, _ = w.Write(video(2, 5))
+	_, _ = w.Write(video(3, 1))
+	if got := output.Bytes(); got[len(got)-TSPacketSize+1]&0x1f != 1 {
+		t.Fatal("H.264 IDR did not resume after HEVC-to-H.264 PMT change")
+	}
+}
+
+func TestContinuityWriterChecksIDRBeforeOldPTSReplayGuard(t *testing.T) {
+	video := func(counter, nal byte, pts uint64) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
+		copy(p[4:], []byte{0, 0, 1, 0xe0, 0, 0, 0x80, 0x80, 5})
+		writeTimestamp(p[13:18], pts)
+		copy(p[30:], []byte{0, 0, 1, nal})
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256], w.knownParams[256], w.rawPTS[256] = 0x1b, true, 100_000
+	w.started = true
+	w.BeginSession()
+	_, _ = w.Write(video(0, 7, 1_000))
+	_, _ = w.Write(video(1, 8, 2_000))
+	_, _ = w.Write(video(2, 5, 3_000))
+	_, _ = w.Write(video(3, 1, 4_000))
+	if got := output.Bytes(); got[len(got)-TSPacketSize+1]&0x1f != 1 {
+		t.Fatal("IDR replay guard prevented recovery from an older provider timeline")
+	}
+}
+
+func TestContinuityWriterDoesNotResumeAtIDRInsidePES(t *testing.T) {
 	packet := func(counter, nal byte) []byte {
 		p := make([]byte, TSPacketSize)
 		p[0], p[1], p[2], p[3] = 0x47, 0x01, 0, 0x10|counter
@@ -250,11 +457,34 @@ func TestContinuityWriterResumesAtIDRInsidePES(t *testing.T) {
 	var output bytes.Buffer
 	w := NewContinuityWriter(&output)
 	w.video[256], w.waitKey[256], w.dropping[256], w.params[256] = 0x1b, true, true, 3
+	w.knownParams[256] = true
 	w.BeginSession()
 	w.params[256] = 3
 	_, _ = w.Write(packet(0, 5))
-	if got := output.Bytes(); got[1]&0x1f != 1 {
-		t.Fatal("IDR inside PES remained dropped")
+	if got := output.Bytes(); got[1] != 0x1f {
+		t.Fatal("IDR inside an incomplete PES was emitted")
+	}
+}
+
+func TestContinuityWriterWaitsForCompleteIDRPES(t *testing.T) {
+	packet := func(counter, nal byte) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
+		copy(p[4:], []byte{0, 0, 1, 0xe0})
+		copy(p[20:], []byte{0, 0, 1, nal})
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256], w.waitKey[256], w.waitVideo, w.params[256] = 0x1b, true, true, 3
+	w.knownParams[256] = true
+	_, _ = w.Write(packet(0, 5))
+	if got := output.Bytes(); got[1]&0x1f != 0x1f {
+		t.Fatal("incomplete IDR PES was emitted before its end was known")
+	}
+	_, _ = w.Write(packet(1, 1))
+	if got := output.Bytes(); got[len(got)-2*TSPacketSize+1]&0x1f != 1 {
+		t.Fatal("complete IDR PES was not replayed at the next PES boundary")
 	}
 }
 
@@ -277,5 +507,74 @@ func TestContinuityWriterBoundsReplaySuppression(t *testing.T) {
 	last := output.Bytes()[51*TSPacketSize:]
 	if last[1]&0x1f != 1 {
 		t.Fatalf("replay suppression remained active after its frame budget: pid=%x wait=%v budget=%d", last[1:3], w.waitPTS[256], w.resumeMax[256])
+	}
+}
+
+func TestContinuityWriterHoldsAudioWhileWaitingForVideoIDR(t *testing.T) {
+	packet := func(pid uint16, counter, nal byte) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, byte(pid>>8)|0x40, byte(pid), 0x10|counter
+		if nal != 0 {
+			copy(p[20:], []byte{0, 0, 1, nal})
+		}
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256] = 0x1b
+	w.BeginSession()
+	w.params[256] = 3
+	w.knownParams[256] = true
+	_, _ = w.Write(packet(256, 0, 5))
+	w.BeginSession()
+	_, _ = w.Write(packet(257, 0, 0))
+	w.params[256] = 3
+	w.knownParams[256] = true
+	_, _ = w.Write(packet(256, 1, 5))
+	_, _ = w.Write(packet(256, 2, 1))
+	_, _ = w.Write(packet(257, 1, 0))
+	got := output.Bytes()
+	if got[TSPacketSize+1] != 0x1f {
+		t.Fatal("audio escaped while video waited for an IDR")
+	}
+	if got[len(got)-TSPacketSize+1]&0x1f != 1 {
+		t.Fatal("audio did not resume after video IDR")
+	}
+}
+
+func TestContinuityWriterDoesNotRebaseFromHeldAudio(t *testing.T) {
+	packet := make([]byte, TSPacketSize)
+	packet[0], packet[1], packet[2], packet[3] = 0x47, 0x41, 1, 0x10
+	copy(packet[4:], []byte{0, 0, 1, 0xc0, 0, 0, 0x80, 0x80, 5})
+	writeTimestamp(packet[13:18], 10_000)
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256] = 0x1b
+	w.started = true
+	w.beginDiscontinuity()
+	_, _ = w.Write(packet)
+	if w.offsetOK {
+		t.Fatal("audio changed the global clock before video recovery")
+	}
+}
+
+func TestContinuityWriterWritesPCRHeartbeatWhileWaitingForIDR(t *testing.T) {
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256], w.waitVideo = 0x1b, true
+	w.next[256] = 7
+	w.session = 1
+	w.emittedPCR, w.haveEmittedPCR = 10_000, true
+	w.emittedPCRAt = time.Now().Add(-time.Second)
+	if err := w.writeHeartbeat(); err != nil {
+		t.Fatal(err)
+	}
+	packet := output.Bytes()
+	pcr, ok := readPCR(packet)
+	if !ok || pcr < 100_000 || pcr > 101_000 {
+		t.Fatalf("heartbeat PCR=%d ok=%v", pcr, ok)
+	}
+	if pid := uint16(packet[1]&0x1f)<<8 | uint16(packet[2]); pid != 256 || packet[3]&0x10 != 0 || packet[5]&0x80 == 0 {
+		t.Fatalf("heartbeat header=%x", packet[:6])
 	}
 }

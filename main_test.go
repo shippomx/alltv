@@ -55,12 +55,12 @@ func TestDirectoryChannelLabelsUseAppNamesAndGroups(t *testing.T) {
 	}
 }
 
-func TestPlaylistRepeatsCurrentChannel(t *testing.T) {
+func TestPlaylistDoesNotSeekNonSeekableLiveInput(t *testing.T) {
 	b := &bridge{channels: []channel{{ID: "501", Name: "HBO HD", Group: "电影"}}}
 	w := httptest.NewRecorder()
 	b.playlist(w, httptest.NewRequest(http.MethodGet, "/playlist.m3u", nil))
-	if !strings.Contains(w.Body.String(), "#EXTVLCOPT:input-repeat=65535") {
-		t.Fatal("playlist can advance to another channel after a stream restart")
+	if strings.Contains(w.Body.String(), "input-repeat") {
+		t.Fatal("live HTTP input must not be rewound after a stream restart")
 	}
 }
 

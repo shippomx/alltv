@@ -312,9 +312,103 @@ func TestExchangeClassifiesHandshakeTimeout(t *testing.T) {
 	}
 	defer conn.Close()
 	client := Client{Config: ClientConfig{Peers: []*net.UDPAddr{server.LocalAddr().(*net.UDPAddr)}}, HandshakeAttempts: 1}
-	err = client.exchange(context.Background(), conn, [][]byte{{1}}, false, func([]byte) bool { return false })
+	err = client.exchange(context.Background(), conn, [][]byte{{1}}, false, nil, func([]byte) bool { return false })
 	if !errors.Is(err, ErrHandshake) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestStreamRetriesEstablishedPlaybackHandshakeOnce(t *testing.T) {
+	server, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	client := Client{Config: ClientConfig{Peers: []*net.UDPAddr{server.LocalAddr().(*net.UDPAddr)}, ClientID: 1}}
+	media := NewContinuityWriter(&bytes.Buffer{})
+	media.BeginSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	started := time.Now()
+	err = client.Stream(ctx, conn, media)
+	if !errors.Is(err, ErrHandshake) || time.Since(started) >= 2*time.Second {
+		t.Fatalf("reconnect error=%v elapsed=%s", err, time.Since(started))
+	}
+}
+
+func TestStreamKeepsPCRAliveDuringReconnectHandshake(t *testing.T) {
+	server, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	client := Client{Config: ClientConfig{Peers: []*net.UDPAddr{server.LocalAddr().(*net.UDPAddr)}, ClientID: 1}, HandshakeAttempts: 1}
+	var output bytes.Buffer
+	media := NewContinuityWriter(&output)
+	media.started = true
+	media.video[256] = 0x1b
+	media.emittedPCR, media.haveEmittedPCR = 10_000, true
+	media.emittedPCRAt = time.Now()
+	err = client.Stream(context.Background(), conn, media)
+	if !errors.Is(err, ErrHandshake) {
+		t.Fatalf("reconnect error=%v", err)
+	}
+	if output.Len() == 0 {
+		t.Fatal("reconnect handshake emitted no PCR heartbeat")
+	}
+	for offset := 0; offset < output.Len(); offset += TSPacketSize {
+		if _, ok := readPCR(output.Bytes()[offset : offset+TSPacketSize]); !ok {
+			t.Fatalf("packet %d has no PCR", offset/TSPacketSize)
+		}
+	}
+}
+
+func TestStreamClassifiesRangeWithoutMediaAsHandshakeFailure(t *testing.T) {
+	server, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, channel := playbackDatagramFor(t, 0, 0, 23)
+	client := Client{Config: ClientConfig{Peers: []*net.UDPAddr{server.LocalAddr().(*net.UDPAddr)}, ClientID: 1}, HandshakeAttempts: 1}
+	copy(client.Config.Channel[:], channel)
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, peer, readErr := server.ReadFrom(buf)
+			if readErr != nil {
+				return
+			}
+			if n == 98 {
+				plain, _ := controlPlain(56)
+				plain[24], plain[30], plain[31] = 0, 0x55, 32
+				binary.BigEndian.PutUint16(plain[32:34], 436)
+				binary.BigEndian.PutUint32(plain[34:38], 1234)
+				binary.BigEndian.PutUint32(plain[38:42], 1174)
+				_, _ = server.WriteTo(encodeControlResponse(plain, 17), peer)
+			}
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.Stream(ctx, conn, &bytes.Buffer{})
+	if !errors.Is(err, ErrHandshake) {
+		t.Fatalf("range without media error=%v", err)
 	}
 }
 

@@ -143,9 +143,14 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 	if len(c.Config.Peers) == 0 || c.Config.ClientID == 0 {
 		return errors.New("newtv protocol requires peers and an authorized client ID")
 	}
+	mediaWriter := continuityWriter(dst)
+	if mediaWriter.started {
+		c.HandshakeAttempts = 1
+	}
+	mediaWriter.BeginSession()
 	window := c.Window
 	if window <= 0 {
-		window = 96
+		window = 32
 	}
 	retryAfter := c.RetryAfter
 	if retryAfter <= 0 {
@@ -188,7 +193,7 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 	if err := c.sendRequests(conn, setupRequests); err != nil {
 		return err
 	}
-	rangeResponse, err := c.waitRange(ctx, conn, setupRequests)
+	rangeResponse, err := c.waitRange(ctx, conn, setupRequests, mediaWriter.writeHeartbeat)
 	if err != nil {
 		return err
 	}
@@ -200,9 +205,7 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 	requests := NewRequestWindow(rangeResponse.StartSequence, window, retryAfter)
 	// Keep retransmit head-of-line blocking below VLC's three-second cache.
 	reorder := NewReorderBuffer(rangeResponse.StartSequence, window*4)
-	mediaWriter := NewContinuityWriter(dst)
 	mediaWriter.waitPMT = true
-	mediaWriter.BeginSession()
 	dataPeer := 0
 	started := false
 	lastMedia := time.Now()
@@ -211,6 +214,9 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 	}
 	buf := make([]byte, 64*1024)
 	for {
+		if err := mediaWriter.writeHeartbeat(); err != nil {
+			return err
+		}
 		if err := conn.SetReadDeadline(time.Now().Add(min(retryAfter/2, 250*time.Millisecond))); err != nil {
 			return err
 		}
@@ -269,6 +275,9 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 			if len(payloads) > 0 {
 				lastMedia = now
 			} else if now.Sub(lastMedia) >= 600*time.Millisecond {
+				if !started {
+					return fmt.Errorf("%w: provider returned no media", ErrHandshake)
+				}
 				return ErrStalled
 			}
 		}
@@ -321,9 +330,9 @@ func (c Client) control(values [3]uint32, decorated bool) ControlRequest {
 	return ControlRequest{Channel: c.Config.Channel, DeviceID: c.Config.DeviceID, Values: values, Decorated: decorated}
 }
 
-func (c Client) waitRange(ctx context.Context, conn net.PacketConn, requests [][]byte) (RangeResponse, error) {
+func (c Client) waitRange(ctx context.Context, conn net.PacketConn, requests [][]byte, tick func() error) (RangeResponse, error) {
 	var response RangeResponse
-	err := c.exchange(ctx, conn, requests, true, func(datagram []byte) bool {
+	err := c.exchange(ctx, conn, requests, true, tick, func(datagram []byte) bool {
 		var ok bool
 		response, ok = DecodeRangeResponse(datagram, c.Config.Channel[:])
 		return ok && response.Status == 0 && response.Available && response.StreamID != 0
@@ -333,7 +342,7 @@ func (c Client) waitRange(ctx context.Context, conn net.PacketConn, requests [][
 
 func (c Client) waitLoading(ctx context.Context, conn net.PacketConn, request []byte) (LoadingResponse, error) {
 	var response LoadingResponse
-	err := c.exchange(ctx, conn, [][]byte{request}, false, func(datagram []byte) bool {
+	err := c.exchange(ctx, conn, [][]byte{request}, false, nil, func(datagram []byte) bool {
 		var ok bool
 		response, ok = DecodeLoadingResponse(datagram, c.Config.Channel[:])
 		return ok
@@ -341,7 +350,7 @@ func (c Client) waitLoading(ctx context.Context, conn net.PacketConn, request []
 	return response, err
 }
 
-func (c Client) exchange(ctx context.Context, conn net.PacketConn, requests [][]byte, initialSent bool, accept func([]byte) bool) error {
+func (c Client) exchange(ctx context.Context, conn net.PacketConn, requests [][]byte, initialSent bool, tick func() error, accept func([]byte) bool) error {
 	buf := make([]byte, 64*1024)
 	received := 0
 	lastKind, lastLength := byte(0), 0
@@ -357,6 +366,11 @@ func (c Client) exchange(ctx context.Context, conn net.PacketConn, requests [][]
 		}
 		deadline := time.Now().Add(time.Second)
 		for time.Now().Before(deadline) {
+			if tick != nil {
+				if err := tick(); err != nil {
+					return err
+				}
+			}
 			if err := ctx.Err(); err != nil {
 				return err
 			}

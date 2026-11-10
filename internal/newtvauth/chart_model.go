@@ -126,6 +126,9 @@ func (index ChartIndex) Resolve(providerID, device string, clientID uint32) (Aut
 	var servers []providerEndpoint
 	seen := make(map[uint64]bool)
 	for _, server := range providers.Servers {
+		if server.RoomID&1 == 0 {
+			continue
+		}
 		peer, err := net.ResolveUDPAddr("udp", server.Address)
 		if err != nil {
 			return AuthorizedChannel{}, fmt.Errorf("NewTV provider %q server %q: %w", providerID, server.Address, err)
@@ -149,28 +152,26 @@ func (index ChartIndex) Resolve(providerID, device string, clientID uint32) (Aut
 		return AuthorizedChannel{}, err
 	}
 	start := int(binary.BigEndian.Uint32(selector[:]) % uint32(len(servers)))
-	for offset := range servers {
-		var endpoints AuthorizedEndpointSet
-		for i := 0; i < min(2, len(servers)); i++ {
-			server := servers[(start+offset+i)%len(servers)].StreamServer
-			endpoints.Peers = append(endpoints.Peers, server.Address)
-			for _, rule := range index.Rules {
-				if rule.RoomID != server.RoomID || len(rule.Air) == 0 {
-					continue
-				}
-				if _, err := rand.Read(selector[:]); err != nil {
-					return AuthorizedChannel{}, err
-				}
-				address, err := fakeEndpoint(rule.Air[binary.BigEndian.Uint32(selector[:])%uint32(len(rule.Air))])
-				if err != nil {
-					return AuthorizedChannel{}, err
-				}
-				endpoints.HolePunchPeers = append(endpoints.HolePunchPeers, address)
-				break
+	var endpoints AuthorizedEndpointSet
+	for i := 0; i < min(2, len(servers)); i++ {
+		server := servers[(start+i)%len(servers)].StreamServer
+		endpoints.Peers = append(endpoints.Peers, server.Address)
+		for _, rule := range index.Rules {
+			if rule.RoomID != server.RoomID || len(rule.Air) == 0 {
+				continue
 			}
+			if _, err := rand.Read(selector[:]); err != nil {
+				return AuthorizedChannel{}, err
+			}
+			address, err := fakeEndpoint(rule.Air[binary.BigEndian.Uint32(selector[:])%uint32(len(rule.Air))])
+			if err != nil {
+				return AuthorizedChannel{}, err
+			}
+			endpoints.HolePunchPeers = append(endpoints.HolePunchPeers, address)
+			break
 		}
-		result.EndpointSets = append(result.EndpointSets, endpoints)
 	}
+	result.EndpointSets = append(result.EndpointSets, endpoints)
 	result.Peers = result.EndpointSets[0].Peers
 	result.HolePunchPeers = result.EndpointSets[0].HolePunchPeers
 	return result, nil
