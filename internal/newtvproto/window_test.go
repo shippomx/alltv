@@ -38,3 +38,18 @@ func TestRequestWindowAdvanceDropsExpiredGaps(t *testing.T) {
 		t.Fatalf("fill=%v", got)
 	}
 }
+
+func TestRequestWindowRefillsCompleteBatch(t *testing.T) {
+	now := time.Unix(100, 0)
+	w := NewRequestWindow(7, 6, time.Second)
+	w.Fill(now)
+	w.Received(7)
+	w.Received(8)
+	if got := w.FillBatch(now, 3); len(got) != 0 {
+		t.Fatalf("partial batch=%v", got)
+	}
+	w.Received(9)
+	if got := w.FillBatch(now, 3); !slices.Equal(got, []uint32{13, 14, 15}) {
+		t.Fatalf("batch=%v", got)
+	}
+}

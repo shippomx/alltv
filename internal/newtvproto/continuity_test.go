@@ -67,6 +67,53 @@ func TestPSIContinuityWriterDropsDamagedPESUntilNextStart(t *testing.T) {
 	}
 }
 
+func TestContinuityWriterDoesNotLeakDamagedAudioPES(t *testing.T) {
+	packet := func(counter byte, startsPES bool) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x01, 0x01, 0x10|counter
+		if startsPES {
+			p[1] |= 0x40
+		}
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256] = 0x1b
+	input := append(packet(1, true), packet(3, false)...)
+	input = append(input, packet(4, true)...)
+	input = append(input, packet(5, true)...)
+	if _, err := w.Write(input); err != nil {
+		t.Fatal(err)
+	}
+	got := output.Bytes()
+	if len(got) != 3*TSPacketSize || got[1] != 0x1f || got[TSPacketSize+1] != 0x1f {
+		t.Fatalf("damaged audio PES escaped: packets=%d headers=%x", len(got)/TSPacketSize, got[:min(len(got), TSPacketSize+4)])
+	}
+	if pid := uint16(got[2*TSPacketSize+1]&0x1f)<<8 | uint16(got[2*TSPacketSize+2]); pid != 257 {
+		t.Fatalf("next complete audio PES was not emitted: pid=%d", pid)
+	}
+}
+
+func TestContinuityWriterDropsTruncatedAudioPESWithContinuousCounters(t *testing.T) {
+	packet := func(counter byte) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0x01, 0x10|counter
+		copy(p[4:], []byte{0, 0, 1, 0xc0, 0x02, 0x00})
+		return p
+	}
+	var output bytes.Buffer
+	w := NewContinuityWriter(&output)
+	w.video[256] = 0x1b
+	input := append(packet(1), packet(2)...)
+	if _, err := w.Write(input); err != nil {
+		t.Fatal(err)
+	}
+	got := output.Bytes()
+	if len(got) != TSPacketSize || got[1] != 0x1f {
+		t.Fatalf("truncated audio PES escaped: packets=%d header=%x", len(got)/TSPacketSize, got[:min(len(got), 4)])
+	}
+}
+
 func TestContinuityWriterSurvivesUpstreamWriterReset(t *testing.T) {
 	packet := func(counter byte) []byte {
 		p := make([]byte, TSPacketSize)
@@ -112,6 +159,61 @@ func TestContinuityWriterRebasesTimestampsAcrossSession(t *testing.T) {
 	_, pts, _ := readPTS(third)
 	if pcr != 4840 || pts != 5840 {
 		t.Fatalf("pcr=%d pts=%d", pcr, pts)
+	}
+}
+
+func TestContinuityWriterRebaseKeepsVideoDTSMonotonic(t *testing.T) {
+	packet := func(counter byte, pts, dts uint64) []byte {
+		p := make([]byte, TSPacketSize)
+		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
+		copy(p[4:], []byte{0, 0, 1, 0xe0, 0, 0, 0x80, 0xc0, 10})
+		p[13], p[18] = 0x30, 0x10
+		writeTimestamp(p[13:18], pts)
+		writeTimestamp(p[18:23], dts)
+		return p
+	}
+	packets := append(packet(0, 11_000, 8_000), packet(1, 12_000, 7_900)...)
+	w := NewContinuityWriter(&bytes.Buffer{})
+	w.resumeOut[256], w.resumeStep[256], w.emittedDTS[256] = 10_000, 1_800, 9_500
+	w.rebaseReplay(packets, 256)
+	first, ok := readDecodeTimestamp(packets[:TSPacketSize])
+	if !ok || !timestampAfter(first, 9_500) {
+		t.Fatalf("first rebased DTS=%d ok=%v, previous=9500", first, ok)
+	}
+	if dts, ok := readDecodeTimestamp(packets[TSPacketSize:]); !ok || !timestampAfter(dts, first) {
+		t.Fatalf("rebased DTS=%d ok=%v, previous=9500", dts, ok)
+	}
+}
+
+func TestContinuityWriterNormalizesVideoDTSRollback(t *testing.T) {
+	packet := make([]byte, TSPacketSize)
+	packet[0], packet[1], packet[2], packet[3] = 0x47, 0x41, 0, 0x10
+	copy(packet[4:], []byte{0, 0, 1, 0xe0, 0, 0, 0x80, 0xc0, 10})
+	packet[13], packet[18] = 0x30, 0x10
+	writeTimestamp(packet[13:18], 11_000)
+	writeTimestamp(packet[18:23], 8_000)
+	w := NewContinuityWriter(&bytes.Buffer{})
+	w.video[256], w.emittedDTS[256] = 0x1b, 9_500
+	if !w.normalizeTimestamps(packet, 256) {
+		t.Fatal("packet was unexpectedly suppressed")
+	}
+	if dts, ok := readDecodeTimestamp(packet); !ok || !timestampAfter(dts, 9_500) {
+		t.Fatalf("normalized DTS=%d ok=%v, previous=9500", dts, ok)
+	}
+}
+
+func TestContinuityWriterAdvancesRepeatedAudioPTS(t *testing.T) {
+	packet := make([]byte, TSPacketSize)
+	packet[0], packet[1], packet[2], packet[3] = 0x47, 0x41, 1, 0x10
+	copy(packet[4:], []byte{0, 0, 1, 0xc0, 0, 0, 0x80, 0x80, 5})
+	writeTimestamp(packet[13:18], 10_000)
+	w := NewContinuityWriter(&bytes.Buffer{})
+	w.emittedPTS[257], w.ptsStep[257] = 10_000, 1_920
+	if !w.normalizeTimestamps(packet, 257) {
+		t.Fatal("packet was unexpectedly suppressed")
+	}
+	if _, pts, ok := readPTS(packet); !ok || pts != 11_920 {
+		t.Fatalf("normalized PTS=%d ok=%v", pts, ok)
 	}
 }
 
@@ -221,32 +323,6 @@ func TestContinuityWriterRemovesTimeSpentWaitingForIDR(t *testing.T) {
 	_, resumedPTS, _ := readPTS(got[len(got)-2*TSPacketSize:])
 	if resumedPTS != firstPTS+1 {
 		t.Fatalf("IDR wait leaked into output timeline: first=%d resumed=%d", firstPTS, resumedPTS)
-	}
-}
-
-func TestContinuityWriterPreservesWallClockGapAtIDR(t *testing.T) {
-	packet := func(counter byte, pts uint64) []byte {
-		p := make([]byte, TSPacketSize)
-		p[0], p[1], p[2], p[3] = 0x47, 0x41, 0, 0x10|counter
-		copy(p[4:], []byte{0, 0, 1, 0xe0, 0, 0, 0x80, 0x80, 5})
-		writeTimestamp(p[13:18], pts)
-		copy(p[20:], []byte{0, 0, 1, 5})
-		return p
-	}
-	var output bytes.Buffer
-	w := NewContinuityWriter(&output)
-	w.video[256], w.knownParams[256], w.params[256] = 0x1b, true, 3
-	w.BeginSession()
-	_, _ = w.Write(packet(0, 10_000))
-	w.emittedAt[256] = time.Now().Add(-time.Second)
-	w.BeginSession()
-	_, _ = w.Write(packet(1, 20_000))
-	_, _ = w.Write(packet(2, 21_000))
-	got := output.Bytes()
-	_, first, _ := readPTS(got[:TSPacketSize])
-	_, second, _ := readPTS(got[len(got)-2*TSPacketSize:])
-	if delta := (second - first) & timestampMask; delta < 90_000 || delta > 91_000 {
-		t.Fatalf("wall-clock gap was not preserved: delta=%d", delta)
 	}
 }
 
@@ -566,6 +642,7 @@ func TestContinuityWriterWritesPCRHeartbeatWhileWaitingForIDR(t *testing.T) {
 	w.session = 1
 	w.emittedPCR, w.haveEmittedPCR = 10_000, true
 	w.emittedPCRAt = time.Now().Add(-time.Second)
+	w.resumeOut[256] = 20_000
 	if err := w.writeHeartbeat(); err != nil {
 		t.Fatal(err)
 	}
@@ -576,5 +653,8 @@ func TestContinuityWriterWritesPCRHeartbeatWhileWaitingForIDR(t *testing.T) {
 	}
 	if pid := uint16(packet[1]&0x1f)<<8 | uint16(packet[2]); pid != 256 || packet[3]&0x10 != 0 || packet[5]&0x80 == 0 {
 		t.Fatalf("heartbeat header=%x", packet[:6])
+	}
+	if w.resumeOut[256] < 110_000 || w.resumeOut[256] > 111_000 {
+		t.Fatalf("resume PTS did not follow heartbeat PCR: %d", w.resumeOut[256])
 	}
 }

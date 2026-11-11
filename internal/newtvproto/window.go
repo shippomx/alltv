@@ -30,6 +30,13 @@ func (w *RequestWindow) Fill(now time.Time) []uint32 {
 	return sequences
 }
 
+func (w *RequestWindow) FillBatch(now time.Time, minimum int) []uint32 {
+	if w.limit-len(w.outstanding) < minimum {
+		return nil
+	}
+	return w.Fill(now)
+}
+
 func (w *RequestWindow) Received(sequence uint32) bool {
 	if _, exists := w.outstanding[sequence]; !exists {
 		return false

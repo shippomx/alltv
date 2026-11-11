@@ -21,16 +21,34 @@ func TestDecodeLoadingResponse(t *testing.T) {
 	}
 }
 
+func TestDecodeLiveLoadingClips(t *testing.T) {
+	plain, channel := controlPlain(64)
+	plain[0], plain[24] = 0x22, 0
+	binary.BigEndian.PutUint16(plain[46:48], 2)
+	binary.BigEndian.PutUint32(plain[48:52], 120)
+	binary.BigEndian.PutUint32(plain[52:56], 2)
+	binary.BigEndian.PutUint32(plain[56:60], 140)
+	binary.BigEndian.PutUint32(plain[60:64], 3)
+	response, ok := DecodeLoadingResponse(encodeControlResponse(plain, 17), channel)
+	if !ok || len(response.Clips) != 2 || response.Clips[0] != (ClipInfo{120, 2}) || response.Clips[1] != (ClipInfo{140, 3}) {
+		t.Fatalf("ok=%v response=%+v", ok, response)
+	}
+}
+
 func TestDecodeRangeResponse(t *testing.T) {
-	plain, channel := controlPlain(56)
+	plain, channel := controlPlain(66)
+	plain[0] = 0x21
 	binary.BigEndian.PutUint32(plain[38:42], 123)
 	binary.BigEndian.PutUint32(plain[42:46], 10)
 	binary.BigEndian.PutUint16(plain[46:48], 4)
-	binary.BigEndian.PutUint32(plain[48:52], 10)
-	binary.BigEndian.PutUint32(plain[52:56], 100)
+	binary.BigEndian.PutUint16(plain[48:50], 2)
+	binary.BigEndian.PutUint32(plain[50:54], 123)
+	binary.BigEndian.PutUint32(plain[54:58], 10)
+	binary.BigEndian.PutUint32(plain[58:62], 124)
+	binary.BigEndian.PutUint32(plain[62:66], 100)
 
 	response, ok := DecodeRangeResponse(encodeControlResponse(plain, 23), channel)
-	if !ok || response.StreamID != 123 || response.Tail != 4 || response.FirstSequence != 10 || response.EndSequence != 100 {
+	if !ok || response.StreamID != 123 || response.Tail != 4 || len(response.Clips) != 2 || response.Clips[0] != (ClipInfo{123, 10}) || response.Clips[1] != (ClipInfo{124, 100}) {
 		t.Fatalf("ok=%v response=%+v", ok, response)
 	}
 }
@@ -41,7 +59,7 @@ func TestDecodeExtendedNativeRangeResponseFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, ok := DecodeRangeResponse(wire, mustHex(t, "50a2013a0000b67c0970aaa14fd56f75"))
-	if !ok || !response.Available || response.Flags != 32 || response.Window != 436 || response.ServerTime != 1793926909 || response.StreamID != 1793926840 || response.StartSequence != 0 {
+	if !ok || !response.Available || response.Flags != 32 || response.Window != 436 || response.ServerTime != 1793926909 || response.StreamID != 1793926840 || response.StartSequence != 0 || len(response.Clips) != 3 || response.Clips[0] != (ClipInfo{1793926840, 4823}) || response.Clips[1] != (ClipInfo{1793926860, 5653}) || response.Clips[2] != (ClipInfo{1793926880, 3320}) {
 		t.Fatalf("ok=%v response=%+v", ok, response)
 	}
 }

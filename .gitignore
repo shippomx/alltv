@@ -5,6 +5,7 @@
 /newtv.m3u
 
 # Build artifacts.
+/target/
 /catalog
 /newtv-session-bridge
 /newtv-session-bridge-*

@@ -29,6 +29,8 @@ type Client struct {
 }
 
 const liveSessionFakeKey uint32 = 2115947647
+const liveLoadingInterval = 3 * time.Second
+const liveStallTimeout = time.Second
 
 var ErrHandshake = errors.New("newtv provider did not complete the handshake")
 var ErrStalled = errors.New("newtv provider stopped sending media")
@@ -150,7 +152,7 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 	mediaWriter.BeginSession()
 	window := c.Window
 	if window <= 0 {
-		window = 32
+		window = 66
 	}
 	retryAfter := c.RetryAfter
 	if retryAfter <= 0 {
@@ -202,14 +204,23 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 	}
 
 	streamID := rangeResponse.StreamID
-	requests := NewRequestWindow(rangeResponse.StartSequence, window, retryAfter)
+	plan := newClipPlan(rangeResponse.Clips, streamID, rangeResponse.StartSequence)
+	planned := len(plan.items) > 0
+	requestStart := rangeResponse.StartSequence
+	if planned {
+		requestStart = 0
+	}
+	requests := NewRequestWindow(requestStart, window, retryAfter)
 	// Keep retransmit head-of-line blocking below VLC's three-second cache.
-	reorder := NewReorderBuffer(rangeResponse.StartSequence, window*4)
+	reorder := NewReorderBuffer(requestStart, window*4)
 	mediaWriter.waitPMT = true
 	dataPeer := 0
+	loadingCounter := uint32(0)
+	nextLoading := time.Now().Add(liveLoadingInterval)
+	fakeBase, fakeLimit := rangeResponse.Window, rangeResponse.Flags
 	started := false
 	lastMedia := time.Now()
-	if err := c.sendData(conn, streamID, requests.Fill(time.Now()), rangeResponse.Window, rangeResponse.Flags, &dataPeer); err != nil {
+	if err := c.sendLiveData(conn, plan, planned, streamID, requests.Fill(time.Now()), rangeResponse.Window, rangeResponse.Flags, &dataPeer); err != nil {
 		return err
 	}
 	buf := make([]byte, 64*1024)
@@ -222,8 +233,22 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 		}
 		n, _, readErr := conn.ReadFrom(buf)
 		if readErr == nil {
+			if response, ok := DecodeLoadingResponse(buf[:n], c.Config.Channel[:]); ok && response.Status == 0 {
+				plan.append(response.Clips)
+				if response.Available && response.Flags != 0 && response.Window <= 1023 {
+					fakeBase, fakeLimit = response.Window, response.Flags
+				}
+				continue
+			}
 			frame, ok := DecodePlayback(buf[:n], c.Config.Channel[:])
 			if ok {
+				if planned {
+					ordinal, exists := plan.ordinal(frame.StreamID, frame.Sequence)
+					if !exists {
+						continue
+					}
+					frame.Sequence = ordinal
+				}
 				if !started {
 					requests = NewRequestWindow(frame.Sequence+1, window, retryAfter)
 					reorder = NewReorderBuffer(frame.Sequence, window*4)
@@ -254,11 +279,25 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 		default:
 		}
 		now := time.Now()
+		// Serial provider rebuilds are not seamless, so keep consuming Loading ranges until exhausted.
+		if planned && started && plan.remaining(reorder.Next()) == 0 {
+			return fmt.Errorf("%w: clip plan exhausted", ErrStalled)
+		}
+		if planned && !now.Before(nextLoading) {
+			if current, ok := plan.get(reorder.Next()); ok {
+				loadingStreamID := current.StreamID + 20
+				if err := c.sendLoading(conn, loadingStreamID, loadingStreamID-streamID, loadingCounter, fakeBase, fakeLimit); err != nil {
+					return err
+				}
+				loadingCounter++
+			}
+			nextLoading = now.Add(liveLoadingInterval)
+		}
 		retries := requests.Retries(now)
-		if err := c.sendData(conn, streamID, retries, rangeResponse.Window, rangeResponse.Flags, &dataPeer); err != nil {
+		if err := c.sendLiveData(conn, plan, planned, streamID, retries, fakeBase, fakeLimit, &dataPeer); err != nil {
 			return err
 		}
-		if err := c.sendData(conn, streamID, requests.Fill(now), rangeResponse.Window, rangeResponse.Flags, &dataPeer); err != nil {
+		if err := c.sendLiveData(conn, plan, planned, streamID, requests.FillBatch(now, 3), fakeBase, fakeLimit, &dataPeer); err != nil {
 			return err
 		}
 		if now.Sub(lastMedia) >= time.Second {
@@ -274,14 +313,73 @@ func (c Client) Stream(ctx context.Context, conn net.PacketConn, dst io.Writer) 
 			}
 			if len(payloads) > 0 {
 				lastMedia = now
-			} else if now.Sub(lastMedia) >= 600*time.Millisecond {
-				if !started {
-					return fmt.Errorf("%w: provider returned no media", ErrHandshake)
-				}
-				return ErrStalled
+			} else if !started {
+				return fmt.Errorf("%w: provider returned no media", ErrHandshake)
+			} else if now.Sub(lastMedia) >= liveStallTimeout {
+				return fmt.Errorf("%w: no media for %s with %d clips remaining", ErrStalled, now.Sub(lastMedia).Round(time.Millisecond), plan.remaining(reorder.Next()))
 			}
 		}
 	}
+}
+
+func (c Client) sendLoading(conn net.PacketConn, streamID, offset, counter uint32, base uint16, limit byte) error {
+	request := c.control([3]uint32{c.Config.ClientID, streamID, offset}, false)
+	request.Counter = counter
+	for i := range max(1, len(c.Config.HolePunchPeers)) {
+		if len(c.Config.HolePunchPeers) > 0 {
+			if len(c.Config.HolePunchPeers) > len(c.Config.Peers) {
+				return fmt.Errorf("newtv has %d hole endpoints for %d peers", len(c.Config.HolePunchPeers), len(c.Config.Peers))
+			}
+			extension, err := endpointExtension(c.Config.HolePunchPeers[i])
+			if err != nil {
+				return err
+			}
+			request.Extension = extension
+		}
+		fakeKey, err := newRequestFakeKey(base, limit)
+		if err != nil {
+			return err
+		}
+		request.FakeKey = fakeKey
+		wire, err := EncodeLoadingRequest(request)
+		if err != nil {
+			return err
+		}
+		if len(c.Config.HolePunchPeers) == 0 {
+			return c.send(conn, wire)
+		}
+		if _, err := conn.WriteTo(wire, c.Config.Peers[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c Client) sendLiveData(conn net.PacketConn, plan *clipPlan, planned bool, streamID uint32, ordinals []uint32, base uint16, limit byte, peerIndex *int) error {
+	if !planned {
+		return c.sendData(conn, streamID, ordinals, base, limit, peerIndex)
+	}
+	for len(ordinals) > 0 {
+		first, ok := plan.get(ordinals[0])
+		if !ok {
+			return nil
+		}
+		sequences := []uint32{first.Sequence}
+		n := 1
+		for n < len(ordinals) && n < 3 {
+			next, ok := plan.get(ordinals[n])
+			if !ok || next.StreamID != first.StreamID {
+				break
+			}
+			sequences = append(sequences, next.Sequence)
+			n++
+		}
+		if err := c.sendData(conn, first.StreamID, sequences, base, limit, peerIndex); err != nil {
+			return err
+		}
+		ordinals = ordinals[n:]
+	}
+	return nil
 }
 
 func (c Client) punchLoop(ctx context.Context, conn net.PacketConn) error {

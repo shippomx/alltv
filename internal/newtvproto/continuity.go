@@ -21,7 +21,6 @@ type ContinuityWriter struct {
 	lastPTS        map[uint16]uint64
 	emittedPTS     map[uint16]uint64
 	emittedDTS     map[uint16]uint64
-	emittedAt      map[uint16]time.Time
 	emittedPCR     uint64
 	haveEmittedPCR bool
 	emittedPCRAt   time.Time
@@ -40,6 +39,8 @@ type ContinuityWriter struct {
 	waitVideo      bool
 	heldPES        map[uint16][]byte
 	heldParams     map[uint16][]byte
+	pendingPES     map[uint16][]byte
+	pendingBad     map[uint16]bool
 }
 
 func newPSIContinuityWriter(dst io.Writer) io.Writer {
@@ -54,7 +55,6 @@ func NewContinuityWriter(dst io.Writer) *ContinuityWriter {
 		offsetOK: true, lastPTS: make(map[uint16]uint64), ptsStep: make(map[uint16]uint64),
 		emittedPTS: make(map[uint16]uint64),
 		emittedDTS: make(map[uint16]uint64),
-		emittedAt:  make(map[uint16]time.Time),
 		video:      make(map[uint16]byte), waitKey: make(map[uint16]bool), rawPTS: make(map[uint16]uint64),
 		params: make(map[uint16]byte), knownParams: make(map[uint16]bool),
 		resumePTS: make(map[uint16]uint64), waitPTS: make(map[uint16]bool),
@@ -63,6 +63,8 @@ func NewContinuityWriter(dst io.Writer) *ContinuityWriter {
 		resumeMax:  make(map[uint16]byte),
 		heldPES:    make(map[uint16][]byte),
 		heldParams: make(map[uint16][]byte),
+		pendingPES: make(map[uint16][]byte),
+		pendingBad: make(map[uint16]bool),
 	}
 }
 
@@ -83,6 +85,8 @@ func (w *ContinuityWriter) BeginSession() {
 func (w *ContinuityWriter) beginDiscontinuity() {
 	w.session++
 	w.offsetOK = false
+	clear(w.pendingPES)
+	clear(w.pendingBad)
 	for pid := range w.video {
 		w.waitKey[pid] = true
 		if w.knownParams[pid] {
@@ -109,6 +113,8 @@ func (w *ContinuityWriter) beginDiscontinuity() {
 }
 
 func (w *ContinuityWriter) Write(p []byte) (int, error) {
+	written := len(p)
+	p = w.bufferNonVideoPES(p)
 	var replay []byte
 	output := make([]byte, 0, len(p))
 	if len(p)%TSPacketSize == 0 {
@@ -261,7 +267,72 @@ func (w *ContinuityWriter) Write(p []byte) (int, error) {
 	if err := writeFull(w.dst, output); err != nil {
 		return 0, err
 	}
-	return len(p), nil
+	return written, nil
+}
+
+func (w *ContinuityWriter) bufferNonVideoPES(p []byte) []byte {
+	if len(w.video) == 0 || len(p)%TSPacketSize != 0 {
+		return p
+	}
+	ready := make([]byte, 0, len(p))
+	for offset := 0; offset < len(p); offset += TSPacketSize {
+		packet := p[offset : offset+TSPacketSize]
+		pid := uint16(packet[1]&0x1f)<<8 | uint16(packet[2])
+		if pid <= 31 || pid == 4096 {
+			ready = append(ready, packet...)
+			continue
+		}
+		if _, video := w.video[pid]; video {
+			ready = append(ready, packet...)
+			continue
+		}
+		startsPES := packet[1]&0x40 != 0
+		if startsPES && len(w.pendingPES[pid]) > 0 {
+			if w.pendingBad[pid] || !completePES(w.pendingPES[pid]) {
+				ready = append(ready, nullPackets(len(w.pendingPES[pid])/TSPacketSize)...)
+			} else {
+				ready = append(ready, w.pendingPES[pid]...)
+			}
+			w.pendingPES[pid] = w.pendingPES[pid][:0]
+			delete(w.pendingBad, pid)
+		}
+		pending := w.pendingPES[pid]
+		if len(pending) > 0 && packet[3]&0x10 != 0 {
+			previous := pending[len(pending)-TSPacketSize:]
+			if previous[3]&0x10 != 0 && packet[3]&0x0f != (previous[3]+1)&0x0f {
+				w.pendingBad[pid] = true
+			}
+		}
+		w.pendingPES[pid] = append(pending, packet...)
+	}
+	return ready
+}
+
+func completePES(packets []byte) bool {
+	data := make([]byte, 0, len(packets))
+	for offset := 0; offset+TSPacketSize <= len(packets); offset += TSPacketSize {
+		packet := packets[offset : offset+TSPacketSize]
+		payload, ok := payloadOffset(packet)
+		if ok {
+			data = append(data, packet[payload:]...)
+		}
+	}
+	if len(data) < 6 || data[0] != 0 || data[1] != 0 || data[2] != 1 {
+		return true
+	}
+	length := int(data[4])<<8 | int(data[5])
+	return length == 0 || len(data) >= 6+length
+}
+
+func nullPackets(count int) []byte {
+	packets := make([]byte, count*TSPacketSize)
+	for offset := 0; offset < len(packets); offset += TSPacketSize {
+		for i := offset; i < offset+TSPacketSize; i++ {
+			packets[i] = 0xff
+		}
+		packets[offset], packets[offset+1], packets[offset+2], packets[offset+3] = 0x47, 0x1f, 0xff, 0x10
+	}
+	return packets
 }
 
 func (w *ContinuityWriter) timelineJump(packet []byte, pid uint16) bool {
@@ -283,7 +354,6 @@ func (w *ContinuityWriter) recordEmitted(packet []byte, pid uint16) {
 	}
 	if _, pts, ok := readPTS(packet); ok {
 		w.emittedPTS[pid] = pts
-		w.emittedAt[pid] = time.Now()
 	}
 	if dts, ok := readDecodeTimestamp(packet); ok {
 		w.emittedDTS[pid] = dts
@@ -313,10 +383,14 @@ func (w *ContinuityWriter) writeHeartbeat() error {
 		w.marked[pid] = w.session
 	}
 	now := time.Now()
-	pcr := (w.emittedPCR + uint64(now.Sub(w.emittedPCRAt))*90_000/uint64(time.Second)) & timestampMask
+	advance := uint64(now.Sub(w.emittedPCRAt)) * 90_000 / uint64(time.Second)
+	pcr := (w.emittedPCR + advance) & timestampMask
 	writePCR(packet, pcr)
 	if err := writeFull(w.dst, packet); err != nil {
 		return err
+	}
+	for pid := range w.resumeOut {
+		w.resumeOut[pid] = (w.resumeOut[pid] + advance) & timestampMask
 	}
 	w.emittedPCR, w.emittedPCRAt = pcr, now
 	return nil
@@ -327,13 +401,14 @@ func (w *ContinuityWriter) rebaseReplay(packets []byte, videoPID uint16) {
 	if !ok || target == 0 {
 		return
 	}
-	var first uint64
+	var first, firstDTS uint64
 	for offset := 0; offset+TSPacketSize <= len(packets); offset += TSPacketSize {
 		packet := packets[offset : offset+TSPacketSize]
 		pid := uint16(packet[1]&0x1f)<<8 | uint16(packet[2])
 		if pid == videoPID {
 			_, first, ok = readPTS(packet)
 			if ok {
+				firstDTS, _ = readDecodeTimestamp(packet)
 				break
 			}
 		}
@@ -341,11 +416,25 @@ func (w *ContinuityWriter) rebaseReplay(packets []byte, videoPID uint16) {
 	if !ok {
 		return
 	}
-	correction := (w.resumeTarget(videoPID, target, w.resumeStep[videoPID]) - first) & timestampMask
-	w.offset = (w.offset + correction) & timestampMask
+	correction := (resumeTarget(target, w.resumeStep[videoPID]) - first) & timestampMask
+	if firstDTS != 0 && w.emittedDTS[videoPID] != 0 {
+		adjusted := (firstDTS + correction) & timestampMask
+		if !timestampAfter(adjusted, w.emittedDTS[videoPID]) {
+			correction = (correction + w.emittedDTS[videoPID] + max(w.resumeStep[videoPID], 1) - adjusted) & timestampMask
+		}
+	}
+	previousDTS := w.emittedDTS[videoPID]
 	for offset := 0; offset+TSPacketSize <= len(packets); offset += TSPacketSize {
 		packet := packets[offset : offset+TSPacketSize]
 		pid := uint16(packet[1]&0x1f)<<8 | uint16(packet[2])
+		if dts, hasDTS := readDecodeTimestamp(packet); hasDTS && pid == videoPID {
+			adjusted := (dts + correction) & timestampMask
+			if previousDTS != 0 && !timestampAfter(adjusted, previousDTS) {
+				correction = (correction + previousDTS + max(w.resumeStep[videoPID], 1) - adjusted) & timestampMask
+				adjusted = (dts + correction) & timestampMask
+			}
+			previousDTS = adjusted
+		}
 		if pcr, hasPCR := readPCR(packet); hasPCR {
 			pcr = (pcr + correction) & timestampMask
 			writePCR(packet, pcr)
@@ -362,14 +451,12 @@ func (w *ContinuityWriter) rebaseReplay(packets []byte, videoPID uint16) {
 			}
 		}
 	}
+	w.offset = (w.offset + correction) & timestampMask
 	delete(w.resumeOut, videoPID)
 	delete(w.resumeStep, videoPID)
 }
 
-func (w *ContinuityWriter) resumeTarget(pid uint16, target, step uint64) uint64 {
-	if elapsed := time.Since(w.emittedAt[pid]); elapsed > 0 {
-		step = max(step, uint64(elapsed)*90_000/uint64(time.Second))
-	}
+func resumeTarget(target, step uint64) uint64 {
 	return (target + max(step, 1)) & timestampMask
 }
 
@@ -524,7 +611,7 @@ func (w *ContinuityWriter) normalizeTimestamps(packet []byte, pid uint16) bool {
 	if !w.offsetOK {
 		switch {
 		case hasPTS && w.emittedPTS[pid] != 0:
-			w.offset = (w.resumeTarget(pid, w.emittedPTS[pid], w.ptsStep[pid]) - pts) & timestampMask
+			w.offset = (resumeTarget(w.emittedPTS[pid], w.ptsStep[pid]) - pts) & timestampMask
 			w.offsetOK = true
 		case hasPCR && w.haveEmittedPCR:
 			w.offset = (w.emittedPCR + 1 - pcr) & timestampMask
@@ -542,8 +629,18 @@ func (w *ContinuityWriter) normalizeTimestamps(packet []byte, pid uint16) bool {
 		if video && ((forward > 4_500 && forward < 1<<32) || (backward > 4_500 && backward < 1<<32)) {
 			w.offset = (w.emittedPTS[pid] + max(w.ptsStep[pid], 1) - pts) & timestampMask
 			normalizedPTS = (pts + w.offset) & timestampMask
-		} else if !video && backward > 0 && backward < 1<<32 {
+		} else if !video && (normalizedPTS == w.emittedPTS[pid] || backward > 0 && backward < 1<<32) {
 			normalizedPTS = (w.emittedPTS[pid] + max(w.ptsStep[pid], 1)) & timestampMask
+		}
+	}
+	normalizedDTS, hasDTS := uint64(0), false
+	if hasPTS && packet[ptsOffset]&0xf0 == 0x30 && ptsOffset+10 <= len(packet) {
+		normalizedDTS, hasDTS = (readTimestamp(packet[ptsOffset+5:ptsOffset+10])+w.offset)&timestampMask, true
+		if video && w.emittedDTS[pid] != 0 && !timestampAfter(normalizedDTS, w.emittedDTS[pid]) {
+			correction := (w.emittedDTS[pid] + max(w.ptsStep[pid], 1) - normalizedDTS) & timestampMask
+			w.offset = (w.offset + correction) & timestampMask
+			normalizedPTS = (normalizedPTS + correction) & timestampMask
+			normalizedDTS = (normalizedDTS + correction) & timestampMask
 		}
 	}
 	if hasPCR {
@@ -554,9 +651,8 @@ func (w *ContinuityWriter) normalizeTimestamps(packet []byte, pid uint16) bool {
 	if hasPTS {
 		writeTimestamp(packet[ptsOffset:ptsOffset+5], normalizedPTS)
 		w.lastPTS[pid] = normalizedPTS
-		if packet[ptsOffset]&0xf0 == 0x30 && ptsOffset+10 <= len(packet) {
-			dts := (readTimestamp(packet[ptsOffset+5:ptsOffset+10]) + w.offset) & timestampMask
-			writeTimestamp(packet[ptsOffset+5:ptsOffset+10], dts)
+		if hasDTS {
+			writeTimestamp(packet[ptsOffset+5:ptsOffset+10], normalizedDTS)
 		}
 	}
 	return true
